@@ -1,9 +1,10 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, useEffect } from "react";
 import { Link } from "react-router-dom";
 import { addDoc, collection, serverTimestamp } from "firebase/firestore";
 import { db } from "../firebase.js";
 import { useCart } from "../state/CartContext.jsx";
 import { formatCurrency } from "../utils/format.js";
+import { initiateStkPush, setupSocket } from "../utils/paymentService.js";
 
 const storeOrder = (order) => {
   try {
@@ -26,11 +27,22 @@ export default function CartDrawer() {
     summary
   } = useCart();
   const [checkoutEmail, setCheckoutEmail] = useState("");
+  const [phoneNumber, setPhoneNumber] = useState("");
   const [orderId, setOrderId] = useState("");
   const [status, setStatus] = useState("");
   const [placing, setPlacing] = useState(false);
+  const [socket, setSocket] = useState(null);
 
   const total = useMemo(() => summary.subtotal, [summary.subtotal]);
+
+  useEffect(() => {
+    // Cleanup socket on unmount
+    return () => {
+      if (socket) {
+        socket.disconnect();
+      }
+    };
+  }, [socket]);
 
   const handleCheckout = async () => {
     setStatus("");
@@ -41,34 +53,83 @@ export default function CartDrawer() {
       setStatus("Enter your email for ebook delivery.");
       return;
     }
+    if (!phoneNumber.trim()) {
+      setStatus("Enter your M-Pesa phone number.");
+      return;
+    }
 
     setPlacing(true);
-    try {
-      const payload = {
-        email: checkoutEmail.trim(),
-        items: items.map((item) => ({
-          bookId: item.id,
-          title: item.title,
-          author: item.author,
-          price: item.price,
-          qty: item.qty,
-          coverUrl: item.coverUrl || "",
-          fileUrl: item.fileUrl || ""
-        })),
-        total,
-        createdAt: serverTimestamp(),
-        status: "paid"
-      };
+    setStatus("Connecting to payment system...");
 
-      const docRef = await addDoc(collection(db, "orders"), payload);
-      setOrderId(docRef.id);
-      setStatus("Order placed. Save your order ID to access your library.");
-      storeOrder({ id: docRef.id, email: payload.email });
-      setCheckoutEmail("");
-      clearCart();
+    try {
+      // 1. Setup Socket
+      const newSocket = setupSocket();
+      setSocket(newSocket);
+
+      // Wait for socket to connect to get socketId
+      await newSocket.on("connect", async () => {
+        const socketId = newSocket.id;
+        setStatus("Initiating M-Pesa STK Push...");
+
+        try {
+          // 2. Initiate STK Push
+          await initiateStkPush({
+            phoneNumber: phoneNumber.trim(),
+            amount: total,
+            userId: checkoutEmail.trim(), // Using email as a temporary userId
+            socketId: socketId
+          });
+
+          setStatus("Please check your phone and enter your M-Pesa PIN.");
+
+          // 3. Listen for payment status
+          newSocket.on("payment_success", async (data) => {
+            setStatus("Payment confirmed! Finishing your order...");
+            
+            const payload = {
+              email: checkoutEmail.trim(),
+              phoneNumber: phoneNumber.trim(),
+              items: items.map((item) => ({
+                bookId: item.id,
+                title: item.title,
+                author: item.author,
+                price: item.price,
+                qty: item.qty,
+                coverUrl: item.coverUrl || "",
+                fileUrl: item.fileUrl || ""
+              })),
+              total,
+              createdAt: serverTimestamp(),
+              status: "paid",
+              transactionId: data.CheckoutRequestID || ""
+            };
+
+            const docRef = await addDoc(collection(db, "orders"), payload);
+            setOrderId(docRef.id);
+            setStatus("Great! Order placed. Save your ID to access your library.");
+            storeOrder({ id: docRef.id, email: payload.email });
+            setCheckoutEmail("");
+            setPhoneNumber("");
+            clearCart();
+            setPlacing(false);
+            newSocket.disconnect();
+          });
+
+          newSocket.on("payment_failed", (error) => {
+            setStatus(`Payment failed: ${error.message || "Payment cancelled or timed out."}`);
+            setPlacing(false);
+            newSocket.disconnect();
+          });
+
+        } catch (err) {
+          setStatus(`Failed to start payment: ${err.message}`);
+          setPlacing(false);
+          newSocket.disconnect();
+        }
+      });
+
     } catch (err) {
-      setStatus("Checkout failed. Please try again.");
-    } finally {
+      setStatus("Checkout failed. Please check your connection.");
       setPlacing(false);
     }
   };
@@ -133,14 +194,27 @@ export default function CartDrawer() {
             <span>Subtotal</span>
             <strong>{formatCurrency(total)}</strong>
           </div>
-          <div className="checkout-email">
-            <label>Delivery email</label>
-            <input
-              type="email"
-              value={checkoutEmail}
-              onChange={(event) => setCheckoutEmail(event.target.value)}
-              placeholder="name@example.com"
-            />
+          <div className="checkout-fields">
+            <div className="checkout-email">
+              <label>Delivery email</label>
+              <input
+                type="email"
+                value={checkoutEmail}
+                onChange={(event) => setCheckoutEmail(event.target.value)}
+                placeholder="name@example.com"
+                disabled={placing}
+              />
+            </div>
+            <div className="checkout-phone">
+              <label>M-Pesa number</label>
+              <input
+                type="tel"
+                value={phoneNumber}
+                onChange={(event) => setPhoneNumber(event.target.value)}
+                placeholder="2547XXXXXXXX"
+                disabled={placing}
+              />
+            </div>
           </div>
           <button
             type="button"
@@ -148,15 +222,15 @@ export default function CartDrawer() {
             onClick={handleCheckout}
             disabled={!items.length || placing}
           >
-            {placing ? "Processing..." : "Complete Checkout"}
+            {placing ? "Processing..." : "Pay with M-Pesa"}
           </button>
-          {status && <p className="status">{status}</p>}
+          {status && <p className={`status ${status.includes("failed") ? "error" : ""}`}>{status}</p>}
           {orderId && (
             <div className="order-hint">
               <p>
                 Order ID: <strong>{orderId}</strong>
               </p>
-              <Link to="/library" className="ghost">
+              <Link to="/library" className="ghost" onClick={closeCart}>
                 Go to library
               </Link>
             </div>
@@ -166,3 +240,4 @@ export default function CartDrawer() {
     </div>
   );
 }
+
