@@ -10,17 +10,13 @@ export default function Home() {
 
   return (
     <div className="page">
-      <section className="hero" style={{ textAlign: 'center', display: 'block' }}>
-        <div className="hero-copy" style={{ margin: '0 auto', maxWidth: '800px' }}>
+      <section className="hero">
+        <div className="hero-copy">
           <p className="kicker">Maktaba yako ya kidijitali</p>
-          <h1 style={{ fontSize: 'clamp(2rem, 5vw, 4rem)' }}>
+          <h1>
             Build your private library with instant-delivery ebooks.
           </h1>
-          <p className="subtext">
-            Vitabu Kenya brings together the best works from local authors and
-            international classics with a seamless mobile payment experience.
-          </p>
-          <div className="hero-actions" style={{ justifyContent: 'center' }}>
+          <div className="hero-actions">
             <Link to="/store" className="primary">
               Browse the bookstore
             </Link>
