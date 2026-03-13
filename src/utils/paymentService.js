@@ -17,9 +17,11 @@ export const initiateStkPush = async (data) => {
     body: JSON.stringify(data),
   });
 
+
   if (!response.ok) {
     const errorData = await response.json();
-    throw new Error(errorData.message || "Failed to initiate payment");
+    // Surface the specific error from the backend if available
+    throw new Error(errorData.error || errorData.message || "Failed to initiate payment");
   }
 
   return response.json();
@@ -33,11 +35,9 @@ export const setupSocket = () => {
   const socket = io(BASE_URL);
   
   socket.on("connect", () => {
-    console.log("Connected to payment socket:", socket.id);
   });
 
   socket.on("connect_error", (error) => {
-    console.error("Socket connection error:", error);
   });
 
   return socket;

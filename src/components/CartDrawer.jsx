@@ -66,8 +66,8 @@ export default function CartDrawer() {
       const newSocket = setupSocket();
       setSocket(newSocket);
 
-      // Wait for socket to connect to get socketId
-      await newSocket.on("connect", async () => {
+      // Functional way to wait for connection
+      newSocket.on("connect", async () => {
         const socketId = newSocket.id;
         setStatus("Initiating M-Pesa STK Push...");
 
@@ -126,6 +126,12 @@ export default function CartDrawer() {
           setPlacing(false);
           newSocket.disconnect();
         }
+      });
+
+      // Handle connection errors
+      newSocket.on("connect_error", (err) => {
+        setStatus("Failed to connect to payment server.");
+        setPlacing(false);
       });
 
     } catch (err) {

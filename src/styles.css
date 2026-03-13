@@ -665,6 +665,7 @@ main {
   position: fixed;
   inset: 0;
   pointer-events: none;
+  z-index: 900;
 }
 
 .cart-drawer.open {
@@ -814,51 +815,46 @@ main {
 
   .nav-links {
     position: fixed;
-    bottom: 16px;
-    left: 50%;
-    transform: translateX(-50%);
-    width: calc(100% - 32px);
-    max-width: 520px;
+    bottom: 0;
+    left: 0;
+    width: 100%;
+    max-width: none;
+    transform: none;
     justify-content: space-around;
-    padding: 10px 12px;
-    background: rgba(255, 255, 255, 0.96);
-    border: 1px solid var(--line);
-    border-radius: 999px;
-    box-shadow: 0 18px 50px rgba(31, 30, 27, 0.16);
-    z-index: 20;
+    padding: 8px 12px clamp(8px, 2vh, 20px);
+    background: #fff;
+    border: none;
+    border-top: 1px solid var(--line);
+    border-radius: 0;
+    box-shadow: 0 -4px 20px rgba(31, 30, 27, 0.05);
+    z-index: 1000; /* Ensure it's above everything including drawers */
   }
 
   .nav-link {
+    flex: 1;
     flex-direction: column;
     gap: 4px;
-    font-size: 0.72rem;
-    padding: 6px 10px;
-    min-width: 64px;
+    font-size: 0.7rem;
+    padding: 8px 4px;
     text-align: center;
+    border-radius: 0;
   }
 
   .nav-icon {
     display: block;
+    margin: 0 auto;
   }
 
   .nav-link.active {
-    background: #efe5d8;
-  }
-
-  .cart-button {
-    width: auto;
-  }
-
-  .hero {
-    grid-template-columns: 1fr;
-  }
-
-  .hero-stats {
-    grid-template-columns: repeat(3, minmax(90px, 1fr));
+    background: transparent;
+    color: var(--accent);
   }
 
   .cart-panel {
     width: 100%;
+    height: calc(100% - 68px); /* Height minus nav bar height */
+    bottom: 68px; /* Start above nav bar */
+    top: 0;
   }
 
   .cart-item {
