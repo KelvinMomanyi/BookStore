@@ -126,11 +126,24 @@ export default function CartDrawer() {
             newSocket.disconnect();
           });
 
-          newSocket.on("payment_failed", (error) => {
-            setStatus(`Payment failed: ${error.message || "Payment cancelled or timed out."}`);
+          const handleFailure = (error) => {
+            console.log("Payment failure/cancel event received:", error);
+            setStatus(`Payment failed: ${error?.message || "Payment cancelled or timed out."}`);
             setPlacing(false);
             newSocket.disconnect();
-          });
+          };
+
+          newSocket.on("payment_failed", handleFailure);
+          newSocket.on("payment_error", handleFailure);
+          newSocket.on("payment_cancelled", handleFailure);
+
+          // 4. Timeout Fallback (90 seconds)
+          setTimeout(() => {
+            if (newSocket.connected) {
+              console.log("Payment timed out after 90s");
+              handleFailure({ message: "Request timed out. Please try again." });
+            }
+          }, 90000);
 
         } catch (err) {
           setStatus(`Failed to start payment: ${err.message}`);
@@ -157,6 +170,7 @@ export default function CartDrawer() {
       setPlacing(false);
     }
   };
+
 
   return (
     <div className={`cart-drawer ${isOpen ? "open" : ""}`}>
