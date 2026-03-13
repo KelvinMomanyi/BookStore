@@ -31,6 +31,7 @@ export default function CartDrawer() {
   const [orderId, setOrderId] = useState("");
   const [status, setStatus] = useState("");
   const [placing, setPlacing] = useState(false);
+  const [purchasedItems, setPurchasedItems] = useState([]);
   const [socket, setSocket] = useState(null);
 
   const total = useMemo(() => summary.subtotal, [summary.subtotal]);
@@ -105,13 +106,17 @@ export default function CartDrawer() {
             };
 
             const docRef = await addDoc(collection(db, "orders"), payload);
+            const purchasedItems = items.map(item => ({...item}));
+            
+            setStatus("Success! Your ebooks are ready.");
+            setPlacing(false);
             setOrderId(docRef.id);
-            setStatus("Great! Order placed. Save your ID to access your library.");
+            setPurchasedItems(purchasedItems); // New state to show what was bought
+            
             storeOrder({ id: docRef.id, email: payload.email });
             setCheckoutEmail("");
             setPhoneNumber("");
             clearCart();
-            setPlacing(false);
             newSocket.disconnect();
           });
 
@@ -232,13 +237,29 @@ export default function CartDrawer() {
           </button>
           {status && <p className={`status ${status.includes("failed") ? "error" : ""}`}>{status}</p>}
           {orderId && (
-            <div className="order-hint">
-              <p>
-                Order ID: <strong>{orderId}</strong>
-              </p>
-              <Link to="/library" className="ghost" onClick={closeCart}>
-                Go to library
-              </Link>
+            <div className="order-success">
+              <div className="purchased-list">
+                {purchasedItems.map((item) => (
+                  <div key={item.id} className="purchased-item">
+                    <span>{item.title}</span>
+                    {item.fileUrl ? (
+                      <a href={item.fileUrl} target="_blank" rel="noreferrer" className="download-btn">
+                        Download
+                      </a>
+                    ) : (
+                      <span className="muted">Processing file...</span>
+                    )}
+                  </div>
+                ))}
+              </div>
+              <div className="order-hint">
+                <p>
+                  Order ID: <strong>{orderId}</strong>
+                </p>
+                <Link to="/library" className="ghost" onClick={closeCart}>
+                  Go to library
+                </Link>
+              </div>
             </div>
           )}
         </div>

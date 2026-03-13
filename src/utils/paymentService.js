@@ -32,7 +32,9 @@ export const initiateStkPush = async (data) => {
  * @returns {Object} - socket instance
  */
 export const setupSocket = () => {
-  const socket = io(BASE_URL);
+  const socket = io(BASE_URL, {
+    transports: ["websocket"]
+  });
   
   socket.on("connect", () => {
   });
