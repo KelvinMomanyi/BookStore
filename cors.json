@@ -1,0 +1,12 @@
+[
+  {
+    "origin": [
+      "http://localhost:5173",
+      "https://your-app-domain.web.app",
+      "https://your-app-domain.firebaseapp.com"
+    ],
+    "method": ["GET", "POST", "PUT", "DELETE", "HEAD"],
+    "responseHeader": ["Content-Type", "x-firebase-storage-version"],
+    "maxAgeSeconds": 3600
+  }
+]
