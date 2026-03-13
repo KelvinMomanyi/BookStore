@@ -5,7 +5,7 @@ import SectionTitle from "../components/SectionTitle.jsx";
 import { useCart } from "../state/CartContext.jsx";
 
 export default function Home() {
-  const { books, loading } = useBooks(6);
+  const { books, loading } = useBooks(12);
   const { addToCart } = useCart();
 
   return (
@@ -27,20 +27,6 @@ export default function Home() {
             <Link to="/admin" className="ghost">
               Upload new titles
             </Link>
-          </div>
-          <div className="hero-stats">
-            <div>
-              <strong>1,500+</strong>
-              <span>Digital titles</span>
-            </div>
-            <div>
-              <strong>24/7</strong>
-              <span>Instant access</span>
-            </div>
-            <div>
-              <strong>99%</strong>
-              <span>Reader satisfaction</span>
-            </div>
           </div>
         </div>
         <div className="hero-card">
@@ -76,25 +62,10 @@ export default function Home() {
         )}
       </section>
 
-      <section className="panel alt">
-        <SectionTitle
-          title="Why Kenyan readers stay"
-          subtitle="A bookstore designed for local convenience."
-        />
-        <div className="feature-grid">
-          <article>
-            <h4>Instant Delivery</h4>
-            <p>Download every purchase immediately on your phone or laptop.</p>
-          </article>
-          <article>
-            <h4>Personalized Shelves</h4>
-            <p>Filter by genre, format, or creator with one click.</p>
-          </article>
-          <article>
-            <h4>Flexible Access</h4>
-            <p>Store files in the cloud and manage your library anytime.</p>
-          </article>
-        </div>
+      <section className="panel alt center">
+        <Link to="/store" className="primary" style={{ fontSize: '1.2rem', padding: '16px 32px' }}>
+          Explore full catalog
+        </Link>
       </section>
     </div>
   );
