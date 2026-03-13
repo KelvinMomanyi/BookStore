@@ -68,7 +68,10 @@ export default function CartDrawer() {
       setSocket(newSocket);
 
       // Functional way to wait for connection
-      newSocket.on("connect", async () => {
+      console.log("Socket instance created:", newSocket);
+      
+      const onConnect = async () => {
+        console.log("Socket connected, ID:", newSocket.id);
         const socketId = newSocket.id;
         setStatus("Initiating M-Pesa STK Push...");
 
@@ -77,14 +80,16 @@ export default function CartDrawer() {
           await initiateStkPush({
             phoneNumber: phoneNumber.trim(),
             amount: total,
-            userId: checkoutEmail.trim(), // Using email as a temporary userId
+            userId: checkoutEmail.trim(),
             socketId: socketId
           });
+          console.log("STK Push initiated successfully");
 
           setStatus("Please check your phone and enter your M-Pesa PIN.");
 
           // 3. Listen for payment status
           newSocket.on("payment_success", async (data) => {
+            console.log("Payment success event received:", data);
             setStatus("Payment confirmed! Finishing your order...");
             
             const payload = {
@@ -111,7 +116,8 @@ export default function CartDrawer() {
             setStatus("Success! Your ebooks are ready.");
             setPlacing(false);
             setOrderId(docRef.id);
-            setPurchasedItems(purchasedItems); // New state to show what was bought
+            setPurchasedItems(purchasedItems); 
+            console.log("Order saved and UI updated for success");
             
             storeOrder({ id: docRef.id, email: payload.email });
             setCheckoutEmail("");
@@ -131,13 +137,20 @@ export default function CartDrawer() {
           setPlacing(false);
           newSocket.disconnect();
         }
-      });
+      };
 
       // Handle connection errors
       newSocket.on("connect_error", (err) => {
+        console.error("Socket connection error:", err);
         setStatus("Failed to connect to payment server.");
         setPlacing(false);
       });
+
+      if (newSocket.connected) {
+        onConnect();
+      } else {
+        newSocket.on("connect", onConnect);
+      }
 
     } catch (err) {
       setStatus("Checkout failed. Please check your connection.");

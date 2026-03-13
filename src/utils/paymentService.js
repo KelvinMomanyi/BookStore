@@ -32,8 +32,9 @@ export const initiateStkPush = async (data) => {
  * @returns {Object} - socket instance
  */
 export const setupSocket = () => {
+  console.log("Setting up socket to:", BASE_URL);
   const socket = io(BASE_URL, {
-    transports: ["websocket"]
+    transports: ["websocket", "polling"]
   });
   
   socket.on("connect", () => {
