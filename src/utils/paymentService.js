@@ -1,8 +1,8 @@
 import { io } from "socket.io-client";
 
-const BASE_URL = "https://xecoflow.onrender.com";
-const API_URL = `${BASE_URL}/api/v1/payments/stkpush`;
-
+// const BASE_URL = "https://xecoflow.onrender.com";
+// const API_URL = `${BASE_URL}/api/v1/payments/stkpush`;
+const API_URL = "http://192.168.1.3:5174"
 /**
  * Initiates an MPESA STK Push
  * @param {Object} data - { phoneNumber, amount, userId, socketId }
@@ -36,7 +36,7 @@ export const setupSocket = () => {
   const socket = io(BASE_URL, {
     transports: ["websocket", "polling"]
   });
-  
+
   socket.on("connect", () => {
   });
 
