@@ -10,42 +10,23 @@ export default function Home() {
 
   return (
     <div className="page">
-      <section className="hero">
-        <div className="hero-copy">
+      <section className="hero" style={{ textAlign: 'center', display: 'block' }}>
+        <div className="hero-copy" style={{ margin: '0 auto', maxWidth: '800px' }}>
           <p className="kicker">Maktaba yako ya kidijitali</p>
-          <h1>
+          <h1 style={{ fontSize: 'clamp(2rem, 5vw, 4rem)' }}>
             Build your private library with instant-delivery ebooks.
           </h1>
           <p className="subtext">
             Vitabu Kenya brings together the best works from local authors and
             international classics with a seamless mobile payment experience.
           </p>
-          <div className="hero-actions">
+          <div className="hero-actions" style={{ justifyContent: 'center' }}>
             <Link to="/store" className="primary">
               Browse the bookstore
             </Link>
             <Link to="/admin" className="ghost">
               Upload new titles
             </Link>
-          </div>
-        </div>
-        <div className="hero-card">
-          <div className="gradient-card">
-            <h3>Signature Bundles</h3>
-            <p>Curated collections with exclusive author notes.</p>
-            <ul>
-              <li>Kenyan author playlists</li>
-              <li>Audio companion notes</li>
-              <li>Guided reading rituals</li>
-            </ul>
-            <button className="primary" type="button">
-              Explore bundles
-            </button>
-          </div>
-          <div className="floating-card">
-            <p className="kicker">Inayovuma sasa</p>
-            <h4>Kesho Yetu</h4>
-            <span>na Wangari Maathai</span>
           </div>
         </div>
       </section>
