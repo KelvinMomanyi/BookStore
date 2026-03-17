@@ -53,6 +53,7 @@ Setup:
    - `CLOUDINARY_CLOUD_NAME` (e.g. `dsmz1lxlk`)
    - `VITE_DOWNLOAD_PROXY_URL` = `https://<your-vercel-domain>/api/download` (no query string)
 3. Redeploy after adding env vars.
+4. Make sure your Vercel project uses Node 18 (this repo sets it in `package.json` and `vercel.json`).
 
 Setup:
 1. Install Firebase CLI and initialize functions: `firebase init functions` (select JavaScript).

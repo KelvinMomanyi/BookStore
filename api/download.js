@@ -1,6 +1,3 @@
-import { Readable } from "node:stream";
-import { pipeline } from "node:stream/promises";
-
 const ALLOWED_HOST = "res.cloudinary.com";
 
 const pickQueryValue = (value) => {
@@ -93,14 +90,9 @@ export default async function handler(req, res) {
       return;
     }
 
-    if (!response.body) {
-      res.statusCode = 502;
-      res.end("Empty response body.");
-      return;
-    }
-
-    const nodeStream = Readable.fromWeb(response.body);
-    await pipeline(nodeStream, res);
+    const arrayBuffer = await response.arrayBuffer();
+    res.statusCode = 200;
+    res.end(Buffer.from(arrayBuffer));
   } catch (err) {
     console.error("Download proxy failed", err);
     res.statusCode = 500;
