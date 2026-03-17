@@ -51,7 +51,7 @@ Setup:
 1. Deploy the app to Vercel.
 2. In Vercel environment variables, set:
    - `CLOUDINARY_CLOUD_NAME` (e.g. `dsmz1lxlk`)
-   - `VITE_DOWNLOAD_PROXY_URL` = `https://<your-vercel-domain>/api/download`
+   - `VITE_DOWNLOAD_PROXY_URL` = `https://<your-vercel-domain>/api/download` (no query string)
 3. Redeploy after adding env vars.
 
 Setup:

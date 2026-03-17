@@ -53,12 +53,16 @@ const buildDownloadUrl = (url, filename) => {
 const wrapDownloadProxy = (directUrl, filename) => {
   const proxyBase = import.meta.env.VITE_DOWNLOAD_PROXY_URL;
   if (!proxyBase) return directUrl;
-  const base = proxyBase.replace(/\/$/, "");
-  const params = new URLSearchParams({ url: directUrl });
-  if (filename) {
-    params.set("filename", filename);
+  try {
+    const proxyUrl = new URL(proxyBase, window.location.origin);
+    proxyUrl.searchParams.set("url", directUrl);
+    if (filename) {
+      proxyUrl.searchParams.set("filename", filename);
+    }
+    return proxyUrl.toString();
+  } catch {
+    return directUrl;
   }
-  return `${base}?${params.toString()}`;
 };
 
 const buildDownloadLabel = (url) => {
