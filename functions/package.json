@@ -1,0 +1,12 @@
+{
+  "name": "bookstore-functions",
+  "private": true,
+  "main": "index.js",
+  "engines": {
+    "node": "18"
+  },
+  "dependencies": {
+    "firebase-admin": "^12.6.0",
+    "firebase-functions": "^4.6.0"
+  }
+}

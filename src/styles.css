@@ -572,13 +572,11 @@ main {
   gap: 12px;
 }
 
-.checkout-email,
 .checkout-phone {
   display: grid;
   gap: 6px;
 }
 
-.checkout-email input,
 .checkout-phone input {
   padding: 12px 14px;
   border-radius: 12px;

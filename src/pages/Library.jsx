@@ -3,6 +3,7 @@ import { doc, getDoc } from "firebase/firestore";
 import { db } from "../firebase.js";
 import SectionTitle from "../components/SectionTitle.jsx";
 import { formatCurrency } from "../utils/format.js";
+import { isFailedStatus, isPaidStatus, normalizeStatus } from "../utils/orderStatus.js";
 
 const loadStoredOrders = () => {
   try {
@@ -12,9 +13,58 @@ const loadStoredOrders = () => {
   }
 };
 
+const getFileExtension = (url) => {
+  const clean = (url || "").split("?")[0].split("#")[0];
+  const lastDot = clean.lastIndexOf(".");
+  if (lastDot === -1) return "";
+  return clean.slice(lastDot + 1).toLowerCase();
+};
+
+const buildDownloadUrl = (url, filename) => {
+  if (!url) return "";
+  if (!url.includes("cloudinary.com")) return url;
+
+  const parts = url.split("/upload/");
+  if (parts.length < 2) return url;
+
+  const encodedName = filename ? encodeURIComponent(filename) : "";
+  const flag = encodedName ? `fl_attachment:${encodedName}` : "fl_attachment";
+  const rest = parts.slice(1).join("/upload/");
+
+  if (rest.startsWith("fl_attachment")) {
+    const updated = rest.replace(/^fl_attachment[^/]*\//, `${flag}/`);
+    return wrapDownloadProxy(`${parts[0]}/upload/${updated}`, filename);
+  }
+
+  return wrapDownloadProxy(`${parts[0]}/upload/${flag}/${rest}`, filename);
+};
+
+const buildDownloadLabel = (url) => {
+  const ext = getFileExtension(url);
+  if (ext === "pdf") return "Download PDF";
+  if (ext === "epub") return "Download EPUB";
+  return "Download ebook";
+};
+
+const buildDownloadName = (url, title) => {
+  const ext = getFileExtension(url);
+  const safeTitle = (title || "ebook").replace(/\s+/g, "_");
+  return ext ? `${safeTitle}.${ext}` : safeTitle;
+};
+
+const wrapDownloadProxy = (directUrl, filename) => {
+  const proxyBase = import.meta.env.VITE_DOWNLOAD_PROXY_URL;
+  if (!proxyBase) return directUrl;
+  const base = proxyBase.replace(/\/$/, "");
+  const params = new URLSearchParams({ url: directUrl });
+  if (filename) {
+    params.set("filename", filename);
+  }
+  return `${base}?${params.toString()}`;
+};
+
 export default function Library() {
   const [orderId, setOrderId] = useState("");
-  const [email, setEmail] = useState("");
   const [order, setOrder] = useState(null);
   const [status, setStatus] = useState("");
   const [loading, setLoading] = useState(false);
@@ -22,8 +72,8 @@ export default function Library() {
 
   useEffect(() => {
     if (storedOrders.length > 0) {
-      setOrderId(storedOrders[0].id);
-      setEmail(storedOrders[0].email);
+      const first = storedOrders[0];
+      setOrderId(typeof first === "string" ? first : first.id || "");
     }
   }, [storedOrders]);
 
@@ -32,8 +82,8 @@ export default function Library() {
     setStatus("");
     setOrder(null);
 
-    if (!orderId || !email) {
-      setStatus("Enter both order ID and email.");
+    if (!orderId) {
+      setStatus("Enter your order ID.");
       return;
     }
 
@@ -46,12 +96,18 @@ export default function Library() {
       }
 
       const data = snap.data();
-      if (data.email?.toLowerCase() !== email.trim().toLowerCase()) {
-        setStatus("Email does not match this order.");
+      const normalizedStatus = normalizeStatus(data.status);
+      if (!isPaidStatus(normalizedStatus)) {
+        if (isFailedStatus(normalizedStatus)) {
+          setStatus("Payment failed or was cancelled. Please contact support if charged.");
+        } else {
+          setStatus("Payment is not confirmed yet. Please check again shortly.");
+        }
+        setOrder({ id: snap.id, ...data, locked: true });
         return;
       }
 
-      setOrder({ id: snap.id, ...data });
+      setOrder({ id: snap.id, ...data, locked: false });
     } catch (err) {
       setStatus("Unable to load order. Try again.");
     } finally {
@@ -64,7 +120,7 @@ export default function Library() {
       <section className="panel">
         <SectionTitle
           title="Your Library"
-          subtitle="Access your purchased ebooks with your order ID and email."
+          subtitle="Access your purchased ebooks with your order ID."
         />
         <form className="library-form" onSubmit={handleLookup}>
           <div>
@@ -73,16 +129,6 @@ export default function Library() {
               value={orderId}
               onChange={(event) => setOrderId(event.target.value)}
               placeholder="Enter your order ID"
-              required
-            />
-          </div>
-          <div>
-            <label>Email</label>
-            <input
-              type="email"
-              value={email}
-              onChange={(event) => setEmail(event.target.value)}
-              placeholder="name@example.com"
               required
             />
           </div>
@@ -97,7 +143,6 @@ export default function Library() {
             <div className="order-header">
               <div>
                 <h3>Order {order.id}</h3>
-                <p className="muted">{order.email}</p>
               </div>
               <div>
                 <p className="muted">Total</p>
@@ -116,18 +161,24 @@ export default function Library() {
                     <p className="muted">
                       {item.author} · Qty {item.qty || 1}
                     </p>
-                    {item.fileUrl ? (
+                    {order.locked ? (
+                      <span className="muted">Payment pending</span>
+                    ) : item.fileUrl ? (
                       <a
                         className="primary"
-                        href={item.fileUrl}
+                        href={buildDownloadUrl(
+                          item.fileUrl,
+                          buildDownloadName(item.fileUrl, item.title)
+                        )}
+                        download={buildDownloadName(item.fileUrl, item.title)}
                         target="_blank"
                         rel="noreferrer"
                       >
-                        Download now
+                        {buildDownloadLabel(item.fileUrl)}
                       </a>
                     ) : (
                       <span className="muted">Download unavailable</span>
-                    )}抽
+                    )}
                   </div>
                   <span className="price">
                     {formatCurrency(item.price * (item.qty || 1))}
@@ -141,3 +192,4 @@ export default function Library() {
     </div>
   );
 }
+
