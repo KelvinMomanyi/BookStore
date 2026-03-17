@@ -1,3 +1,5 @@
+import crypto from "node:crypto";
+
 const ALLOWED_HOST = "res.cloudinary.com";
 
 const pickQueryValue = (value) => {
@@ -12,6 +14,56 @@ const sanitizeFilename = (value) => {
     .replace(/[\\/<>:*?|]/g, "")
     .trim();
   return cleaned || "ebook";
+};
+
+const toBase64Url = (value) =>
+  value.replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
+
+const buildSignedCloudinaryUrl = (inputUrl, apiSecret) => {
+  if (!apiSecret) return inputUrl;
+
+  const url = new URL(inputUrl);
+  const segments = url.pathname.split("/").filter(Boolean);
+
+  const cloudName = process.env.CLOUDINARY_CLOUD_NAME;
+  if (cloudName) {
+    const cloudIndex = segments.indexOf(cloudName);
+    if (cloudIndex === -1 || segments[cloudIndex + 2] == null) {
+      return inputUrl;
+    }
+  }
+
+  const cloudIndex = segments.indexOf(cloudName || segments[0]);
+  const resourceType = segments[cloudIndex + 1];
+  const deliveryType = segments[cloudIndex + 2];
+  const rest = segments.slice(cloudIndex + 3);
+  if (!resourceType || !deliveryType || rest.length === 0) {
+    return inputUrl;
+  }
+
+  const cleanedRest =
+    rest[0].startsWith("s--") && rest[0].endsWith("--")
+      ? rest.slice(1)
+      : rest;
+  if (cleanedRest.length === 0) {
+    return inputUrl;
+  }
+
+  const toSign = cleanedRest.join("/");
+  const signatureHash = crypto
+    .createHash("sha1")
+    .update(`${toSign}${apiSecret}`)
+    .digest("base64");
+  const signature = toBase64Url(signatureHash).slice(0, 8);
+
+  const signedPath = [
+    ...segments.slice(0, cloudIndex + 3),
+    `s--${signature}--`,
+    ...cleanedRest
+  ].join("/");
+
+  url.pathname = `/${signedPath}`;
+  return url.toString();
 };
 
 export default async function handler(req, res) {
@@ -63,7 +115,9 @@ export default async function handler(req, res) {
   const safeName = sanitizeFilename(filenameParam || fallbackName);
 
   try {
-    const response = await fetch(target.toString());
+    const apiSecret = process.env.CLOUDINARY_API_SECRET;
+    const signedUrl = buildSignedCloudinaryUrl(target.toString(), apiSecret);
+    const response = await fetch(signedUrl);
     if (!response.ok) {
       res.statusCode = response.status;
       res.end(`Upstream error: ${response.status}`);

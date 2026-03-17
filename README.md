@@ -50,7 +50,8 @@ This repo includes a Vercel API route at `api/download.js`.
 Setup:
 1. Deploy the app to Vercel.
 2. In Vercel environment variables, set:
-   - `CLOUDINARY_CLOUD_NAME` (e.g. `dsmz1lxlk`)
+   - `CLOUDINARY_CLOUD_NAME` (your cloud name)
+   - `CLOUDINARY_API_SECRET` (used to sign delivery URLs)
    - `VITE_DOWNLOAD_PROXY_URL` = `https://<your-vercel-domain>/api/download` (no query string)
 3. Redeploy after adding env vars.
 4. Make sure your Vercel project uses Node 24 (this repo sets it in `package.json` and `vercel.json`).

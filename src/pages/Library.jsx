@@ -24,6 +24,12 @@ const buildDownloadUrl = (url, filename) => {
   if (!url) return "";
   if (!url.includes("cloudinary.com")) return url;
 
+  const proxyBase = getProxyBase();
+  if (proxyBase) {
+    const sourceUrl = stripAttachmentFlag(url);
+    return wrapDownloadProxy(sourceUrl, filename);
+  }
+
   const parts = url.split("/upload/");
   if (parts.length < 2) return url;
 
@@ -39,6 +45,9 @@ const buildDownloadUrl = (url, filename) => {
   return wrapDownloadProxy(`${parts[0]}/upload/${flag}/${rest}`, filename);
 };
 
+const stripAttachmentFlag = (url) =>
+  url.replace(/\/upload\/fl_attachment[^/]*\//, "/upload/");
+
 const buildDownloadLabel = (url) => {
   const ext = getFileExtension(url);
   if (ext === "pdf") return "Download PDF";
@@ -52,8 +61,15 @@ const buildDownloadName = (url, title) => {
   return ext ? `${safeTitle}.${ext}` : safeTitle;
 };
 
+const getProxyBase = () => {
+  if (import.meta.env.VITE_DOWNLOAD_PROXY_URL) {
+    return import.meta.env.VITE_DOWNLOAD_PROXY_URL;
+  }
+  return import.meta.env.PROD ? "/api/download" : "";
+};
+
 const wrapDownloadProxy = (directUrl, filename) => {
-  const proxyBase = import.meta.env.VITE_DOWNLOAD_PROXY_URL;
+  const proxyBase = getProxyBase();
   if (!proxyBase) return directUrl;
   try {
     const proxyUrl = new URL(proxyBase, window.location.origin);
