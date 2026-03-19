@@ -452,32 +452,39 @@ export default function CartDrawer() {
         finalizeCheckout();
       });
 
+      newSocket.on("connect", () => {
+        console.log("Socket connected successfully, ID:", newSocket.id);
+        onConnect();
+      });
+
+      newSocket.on("disconnect", (reason) => {
+        console.log("Socket disconnected:", reason);
+      });
+
+      // Wildcard listener to see EVERYTHING the gateway sends
+      newSocket.onAny((event, ...args) => {
+        console.log(`[SOCKET DEBUG] Global event received: "${event}"`, args);
+      });
+
       // The XECO gateway sends updates through this event
-      const handleGatewayUpdate = (data) => {
+      newSocket.on("payment-update", (data) => {
+        console.log("Socket Received [payment-update]:", data);
         const update = Array.isArray(data) ? data[0] : data;
-        if (!update) return;
-        const payload = update.data || update.Body?.stkCallback || update;
         if (
-          isGatewaySuccess(update) ||
-          isGatewaySuccess(payload)
+          update?.status === "PAYMENT_SUCCESS" ||
+          update?.ResultCode === 0 ||
+          update?.Body?.stkCallback?.ResultCode === 0
         ) {
-          handleSuccess(payload);
+          handleSuccess(update.data || update.Body?.stkCallback || update);
         } else if (
-          isGatewayFailure(update) ||
-          isGatewayFailure(payload)
+          update?.status === "PAYMENT_CANCELLED" ||
+          update?.status === "PAYMENT_FAILED"
         ) {
           handleFailure({
-            message:
-              update.message ||
-              payload?.ResultDesc ||
-              payload?.resultDesc ||
-              (update?.status ? `Payment ${normalizeGatewayStatus(update.status)}` : "Payment failed")
+            message: update.message || update.ResultDesc || `Payment ${update.status.toLowerCase()}`
           });
         }
-      };
-
-      newSocket.on("payment-update", handleGatewayUpdate);
-      newSocket.on("payment_update", handleGatewayUpdate);
+      });
 
       const events = ["payment_success", "payment_failed", "payment_error", "payment_cancelled", "payment_canceled", "stk_cancel", "stk_cancelled", "stk_failed"];
       events.forEach(event => {
