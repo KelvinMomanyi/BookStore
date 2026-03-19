@@ -486,12 +486,28 @@ export default function CartDrawer() {
         }
       });
 
-      const events = ["payment_success", "payment_failed", "payment_error", "payment_cancelled", "payment_canceled", "stk_cancel", "stk_cancelled", "stk_failed"];
+      const events = [
+        "payment_success",
+        "payment_failed",
+        "payment_error",
+        "payment_cancelled",
+        "payment_canceled",
+        "stk_cancel",
+        "stk_cancelled",
+        "stk_failed",
+        "stk_push_callback",
+        "stk_push_status",
+        "callback"
+      ];
       events.forEach(event => {
         newSocket.on(event, (data) => {
           console.log(`Socket Received [${event}]:`, data);
-          if (event === "payment_success") handleSuccess(data);
-          else handleFailure(data);
+          const payload = data?.data || data?.Body?.stkCallback || data;
+          if (event === "payment_success" || (event === "stk_push_callback" && payload?.ResultCode === 0)) {
+            handleSuccess(payload);
+          } else {
+            handleFailure(payload);
+          }
         });
       });
 

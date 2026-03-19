@@ -42,6 +42,9 @@ export default async function handler(req, res) {
   const payload = req.body || {};
   const stkCallback = payload?.Body?.stkCallback || payload?.stkCallback || {};
   
+  // Return 200 immediately to satisfy the gateway and unblock Sockets
+  res.status(200).json({ received: true, message: "Webhook acknowledged" });
+
   const info = {
     resultCode: payload?.ResultCode ?? stkCallback?.ResultCode ?? null,
     resultDesc: payload?.ResultDesc ?? stkCallback?.ResultDesc ?? "",
@@ -51,49 +54,53 @@ export default async function handler(req, res) {
     amount: payload?.Amount || payload?.amount || null,
   };
 
-  let orderRef = null;
+  try {
+    let orderRef = null;
 
-  // 1. Try match by accountReference (trimmed to 12 in frontend)
-  if (info.accountReference) {
-    const potentialRef = db.collection("orders").doc(info.accountReference);
-    const snap = await potentialRef.get();
-    if (snap.exists) {
-      orderRef = potentialRef;
+    // 1. Try match by accountReference (trimmed to 12 in frontend)
+    if (info.accountReference) {
+      const potentialRef = db.collection("orders").doc(info.accountReference);
+      const snap = await potentialRef.get();
+      if (snap.exists) {
+        orderRef = potentialRef;
+      }
     }
-  }
 
-  // 2. Fallback to query by checkoutRequestId
-  if (!orderRef && info.checkoutRequestId) {
-    const snapshot = await db.collection("orders")
-      .where("payment.checkoutRequestId", "==", info.checkoutRequestId)
-      .limit(1)
-      .get();
-    if (!snapshot.empty) {
-      orderRef = snapshot.docs[0].ref;
+    // 2. Fallback to query by checkoutRequestId
+    if (!orderRef && info.checkoutRequestId) {
+      const snapshot = await db.collection("orders")
+        .where("payment.checkoutRequestId", "==", info.checkoutRequestId)
+        .limit(1)
+        .get();
+      if (!snapshot.empty) {
+        orderRef = snapshot.docs[0].ref;
+      }
     }
+
+    if (!orderRef) {
+      console.warn("[WEBHOOK] No matching order found for payload", info);
+      return; // Already sent 200
+    }
+
+    const isSuccess = isSuccessResult(info.resultCode);
+    const updates = {
+      "payment.gatewayStatus": isSuccess ? "success" : "failed",
+      "payment.resultCode": info.resultCode,
+      "payment.resultDesc": info.resultDesc,
+      "payment.updatedAt": admin.firestore.FieldValue.serverTimestamp(),
+    };
+
+    if (isSuccess) {
+      updates.status = "paid";
+      updates.paidAt = admin.firestore.FieldValue.serverTimestamp();
+    } else {
+      updates.status = "failed";
+      updates.failureReason = info.resultDesc || "Payment failed";
+    }
+
+    await orderRef.update(updates);
+    console.info("[WEBHOOK] Order updated successfully:", orderRef.id);
+  } catch (err) {
+    console.error("[WEBHOOK] Error processing order update:", err.message);
   }
-
-  if (!orderRef) {
-    console.warn("No matching order found for payload", info);
-    return res.status(200).json({ received: true, matched: false });
-  }
-
-  const isSuccess = isSuccessResult(info.resultCode);
-  const updates = {
-    "payment.gatewayStatus": isSuccess ? "success" : "failed",
-    "payment.resultCode": info.resultCode,
-    "payment.resultDesc": info.resultDesc,
-    "payment.updatedAt": admin.firestore.FieldValue.serverTimestamp(),
-  };
-
-  if (isSuccess) {
-    updates.status = "paid";
-    updates.paidAt = admin.firestore.FieldValue.serverTimestamp();
-  } else {
-    updates.status = "failed";
-    updates.failureReason = info.resultDesc || "Payment failed";
-  }
-
-  await orderRef.update(updates);
-  return res.status(200).json({ received: true, matched: true });
 }
