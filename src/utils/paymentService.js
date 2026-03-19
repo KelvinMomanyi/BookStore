@@ -25,6 +25,8 @@ export const initiateStkPush = async (data) => {
     socketId: data.socketId
   };
 
+  console.log("Initiating STK Push with payload:", payload);
+
   const response = await fetch(`${GATEWAY_URL}/stkpush`, {
     method: "POST",
     headers: {
