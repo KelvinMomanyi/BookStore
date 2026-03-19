@@ -2,11 +2,39 @@ import { io } from "socket.io-client";
 
 const BASE_URL = import.meta.env.VITE_API_BASE_URL || "https://xecoflow.onrender.com";
 const GATEWAY_URL = import.meta.env.VITE_XECO_GATEWAY_URL || `${BASE_URL}/api/v1/gateway`;
-const API_KEY = import.meta.env.VITE_XECO_API_KEY;
+const API_KEY = (import.meta.env.VITE_XECO_API_KEY || "").trim();
 const SHORTCODE = import.meta.env.VITE_XECO_BUSINESS_SHORTCODE || "9203342";
 const CALLBACK_URL =
   import.meta.env.VITE_XECO_CALLBACK_URL ||
   "https://webhook.site/d9700924-7eaa-4842-ac57-b9398ac0c54a";
+
+const getMissingPaymentConfig = () => {
+  const missing = [];
+
+  if (!API_KEY) {
+    missing.push("VITE_XECO_API_KEY");
+  }
+
+  return missing;
+};
+
+const getErrorMessageFromResponse = async (response) => {
+  const fallback = `Payment gateway request failed (${response.status})`;
+
+  try {
+    const contentType = response.headers.get("content-type") || "";
+
+    if (contentType.includes("application/json")) {
+      const errorData = await response.json();
+      return errorData.error || errorData.message || fallback;
+    }
+
+    const text = await response.text();
+    return text || fallback;
+  } catch {
+    return fallback;
+  }
+};
 
 console.log("Payment Config Checked:", {
   hasApiKey: !!API_KEY,
@@ -22,6 +50,15 @@ console.log("Payment Config Checked:", {
  * @returns {Promise<Object>} - The response from the gateway
  */
 export const initiateStkPush = async (data) => {
+  const missingConfig = getMissingPaymentConfig();
+  if (missingConfig.length) {
+    throw new Error(
+      `Payment setup incomplete. Missing ${missingConfig.join(
+        ", "
+      )}. Set it in frontend environment variables, then restart/redeploy.`
+    );
+  }
+
   const payload = {
     phoneNumber: data.phoneNumber,
     amount: data.amount,
@@ -39,14 +76,14 @@ export const initiateStkPush = async (data) => {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      "X-API-Key": API_KEY,
+      ...(API_KEY ? { "X-API-Key": API_KEY } : {})
     },
     body: JSON.stringify(payload),
   });
 
   if (!response.ok) {
-    const errorData = await response.json();
-    throw new Error(errorData.error || errorData.message || "Failed to initiate payment");
+    const message = await getErrorMessageFromResponse(response);
+    throw new Error(message);
   }
 
   return response.json();
