@@ -144,9 +144,17 @@ exports.xecoWebhook = onRequest(async (req, res) => {
 
   let orderRef = null;
 
+  // Try matching by document ID first
   if (info.accountReference) {
-    orderRef = db.collection("orders").doc(info.accountReference);
-  } else if (info.checkoutRequestId) {
+    const potentialRef = db.collection("orders").doc(info.accountReference);
+    const snap = await potentialRef.get();
+    if (snap.exists) {
+      orderRef = potentialRef;
+    }
+  }
+
+  // Fallback to searching by checkoutRequestId (most reliable for STK Push)
+  if (!orderRef && info.checkoutRequestId) {
     const snapshot = await db
       .collection("orders")
       .where("payment.checkoutRequestId", "==", info.checkoutRequestId)
@@ -155,7 +163,10 @@ exports.xecoWebhook = onRequest(async (req, res) => {
     if (!snapshot.empty) {
       orderRef = snapshot.docs[0].ref;
     }
-  } else if (info.merchantRequestId) {
+  }
+
+  // Final fallback to merchantRequestId
+  if (!orderRef && info.merchantRequestId) {
     const snapshot = await db
       .collection("orders")
       .where("payment.merchantRequestId", "==", info.merchantRequestId)
