@@ -103,7 +103,8 @@ export const initiateStkPush = async (data) => {
       .toString()
       .trim()
       .slice(0, MAX_ACCOUNT_REFERENCE_LENGTH),
-    socketId: data.socketId
+    socketId: data.socketId,
+    socket_id: data.socketId
   };
 
   console.log("Initiating STK Push with payload:", payload);

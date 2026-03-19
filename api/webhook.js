@@ -1,17 +1,5 @@
 import admin from "firebase-admin";
 
-if (!admin.apps.length) {
-  admin.initializeApp({
-    credential: admin.credential.cert({
-      projectId: process.env.VITE_FIREBASE_PROJECT_ID,
-      clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
-      privateKey: (process.env.FIREBASE_PRIVATE_KEY || "").replace(/\\n/g, "\n"),
-    }),
-  });
-}
-
-const db = admin.firestore();
-
 const normalize = (value) => (value || "").toString().trim().toLowerCase();
 
 const isPaidStatus = (value) => {
@@ -26,25 +14,17 @@ const isSuccessResult = (resultCode) => {
 };
 
 export default async function handler(req, res) {
-  if (req.method !== "POST") {
+  // Always acknowledge the request immediately to satisfy the gateway
+  if (req.method === "POST") {
+    console.log("[WEBHOOK] Gateway request received. Sending early ACK.");
+    res.status(200).json({ received: true, ack: true });
+  } else {
     return res.status(405).send("Method Not Allowed");
-  }
-
-  // Optional: Security token validation (if you set XECO_WEBHOOK_TOKEN in Vercel)
-  const expectedToken = process.env.XECO_WEBHOOK_TOKEN;
-  if (expectedToken) {
-    const provided = req.query?.token || req.headers["x-xeco-token"] || req.headers["x-webhook-token"];
-    if (provided !== expectedToken) {
-      return res.status(401).send("Unauthorized");
-    }
   }
 
   const payload = req.body || {};
   const stkCallback = payload?.Body?.stkCallback || payload?.stkCallback || {};
   
-  // Return 200 immediately to satisfy the gateway and unblock Sockets
-  res.status(200).json({ received: true, message: "Webhook acknowledged" });
-
   const info = {
     resultCode: payload?.ResultCode ?? stkCallback?.ResultCode ?? null,
     resultDesc: payload?.ResultDesc ?? stkCallback?.ResultDesc ?? "",
@@ -55,9 +35,24 @@ export default async function handler(req, res) {
   };
 
   try {
+    // 1. Initialize Firebase Admin safely inside the handler
+    if (!admin.apps.length) {
+      if (!process.env.FIREBASE_CLIENT_EMAIL || !process.env.FIREBASE_PRIVATE_KEY) {
+        throw new Error("Firebase credentials missing in Vercel environment variables.");
+      }
+      admin.initializeApp({
+        credential: admin.credential.cert({
+          projectId: process.env.VITE_FIREBASE_PROJECT_ID,
+          clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
+          privateKey: process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, "\n"),
+        }),
+      });
+    }
+
+    const db = admin.firestore();
     let orderRef = null;
 
-    // 1. Try match by accountReference (trimmed to 12 in frontend)
+    // 2. Try match by accountReference (trimmed to 12 in frontend)
     if (info.accountReference) {
       const potentialRef = db.collection("orders").doc(info.accountReference);
       const snap = await potentialRef.get();
@@ -66,7 +61,7 @@ export default async function handler(req, res) {
       }
     }
 
-    // 2. Fallback to query by checkoutRequestId
+    // 3. Fallback to query by checkoutRequestId
     if (!orderRef && info.checkoutRequestId) {
       const snapshot = await db.collection("orders")
         .where("payment.checkoutRequestId", "==", info.checkoutRequestId)
@@ -78,8 +73,8 @@ export default async function handler(req, res) {
     }
 
     if (!orderRef) {
-      console.warn("[WEBHOOK] No matching order found for payload", info);
-      return; // Already sent 200
+      console.warn("[WEBHOOK] No matching order found for payload:", info);
+      return;
     }
 
     const isSuccess = isSuccessResult(info.resultCode);
@@ -101,6 +96,6 @@ export default async function handler(req, res) {
     await orderRef.update(updates);
     console.info("[WEBHOOK] Order updated successfully:", orderRef.id);
   } catch (err) {
-    console.error("[WEBHOOK] Error processing order update:", err.message);
+    console.error("[WEBHOOK] Processing Error:", err.message);
   }
 }
