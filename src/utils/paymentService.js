@@ -6,7 +6,7 @@ const API_KEY = (import.meta.env.VITE_XECO_API_KEY || "").trim();
 const SHORTCODE = import.meta.env.VITE_XECO_BUSINESS_SHORTCODE || "9203342";
 const CALLBACK_URL =
   import.meta.env.VITE_XECO_CALLBACK_URL ||
-  "https://webhook.site/d9700924-7eaa-4842-ac57-b9398ac0c54a";
+  (import.meta.env.PROD ? `${window.location.origin}/api/webhook` : "https://webhook.site/d9700924-7eaa-4842-ac57-b9398ac0c54a");
 
 const MIN_STK_AMOUNT = 1;
 const MAX_ACCOUNT_REFERENCE_LENGTH = 12;

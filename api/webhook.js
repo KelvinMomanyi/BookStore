@@ -30,16 +30,25 @@ export default async function handler(req, res) {
     return res.status(405).send("Method Not Allowed");
   }
 
-  const payload = req.body;
+  // Optional: Security token validation (if you set XECO_WEBHOOK_TOKEN in Vercel)
+  const expectedToken = process.env.XECO_WEBHOOK_TOKEN;
+  if (expectedToken) {
+    const provided = req.query?.token || req.headers["x-xeco-token"] || req.headers["x-webhook-token"];
+    if (provided !== expectedToken) {
+      return res.status(401).send("Unauthorized");
+    }
+  }
+
+  const payload = req.body || {};
   const stkCallback = payload?.Body?.stkCallback || payload?.stkCallback || {};
   
   const info = {
     resultCode: payload?.ResultCode ?? stkCallback?.ResultCode ?? null,
     resultDesc: payload?.ResultDesc ?? stkCallback?.ResultDesc ?? "",
-    checkoutRequestId: payload?.CheckoutRequestID || stkCallback?.CheckoutRequestID || null,
-    merchantRequestId: payload?.MerchantRequestID || stkCallback?.MerchantRequestID || null,
-    accountReference: payload?.AccountReference || null,
-    amount: payload?.Amount || null,
+    checkoutRequestId: payload?.CheckoutRequestID || stkCallback?.CheckoutRequestID || payload?.checkoutRequestId || null,
+    merchantRequestId: payload?.MerchantRequestID || stkCallback?.MerchantRequestID || payload?.merchantRequestId || null,
+    accountReference: payload?.AccountReference || payload?.accountReference || null,
+    amount: payload?.Amount || payload?.amount || null,
   };
 
   let orderRef = null;
@@ -69,16 +78,20 @@ export default async function handler(req, res) {
     return res.status(200).json({ received: true, matched: false });
   }
 
+  const isSuccess = isSuccessResult(info.resultCode);
   const updates = {
-    "payment.gatewayStatus": isSuccessResult(info.resultCode) ? "success" : "failed",
+    "payment.gatewayStatus": isSuccess ? "success" : "failed",
     "payment.resultCode": info.resultCode,
     "payment.resultDesc": info.resultDesc,
     "payment.updatedAt": admin.firestore.FieldValue.serverTimestamp(),
-    status: isSuccessResult(info.resultCode) ? "paid" : "failed",
   };
 
-  if (isSuccessResult(info.resultCode)) {
+  if (isSuccess) {
+    updates.status = "paid";
     updates.paidAt = admin.firestore.FieldValue.serverTimestamp();
+  } else {
+    updates.status = "failed";
+    updates.failureReason = info.resultDesc || "Payment failed";
   }
 
   await orderRef.update(updates);

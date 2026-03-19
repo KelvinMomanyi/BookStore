@@ -4,6 +4,7 @@ import {
   addDoc,
   collection,
   doc,
+  getDoc,
   onSnapshot,
   serverTimestamp,
   updateDoc
@@ -478,14 +479,14 @@ export default function CartDrawer() {
       newSocket.on("payment-update", handleGatewayUpdate);
       newSocket.on("payment_update", handleGatewayUpdate);
 
-      newSocket.on("payment_success", handleSuccess);
-      newSocket.on("payment_failed", handleFailure);
-      newSocket.on("payment_error", handleFailure);
-      newSocket.on("payment_cancelled", handleFailure);
-      newSocket.on("payment_canceled", handleFailure);
-      newSocket.on("stk_cancel", handleFailure);
-      newSocket.on("stk_cancelled", handleFailure);
-      newSocket.on("stk_failed", handleFailure);
+      const events = ["payment_success", "payment_failed", "payment_error", "payment_cancelled", "payment_canceled", "stk_cancel", "stk_cancelled", "stk_failed"];
+      events.forEach(event => {
+        newSocket.on(event, (data) => {
+          console.log(`Socket Received [${event}]:`, data);
+          if (event === "payment_success") handleSuccess(data);
+          else handleFailure(data);
+        });
+      });
 
       timeoutRef.current = setTimeout(() => {
         if (
@@ -589,6 +590,35 @@ export default function CartDrawer() {
           >
             {placing ? "Processing..." : "Pay with M-Pesa"}
           </button>
+          
+          {placing && orderId && (
+            <button
+              type="button"
+              className="ghost"
+              style={{ marginTop: "0.5rem", width: "100%" }}
+              onClick={async () => {
+                setStatus("Checking payment status...");
+                try {
+                  const snap = await getDoc(doc(db, "orders", orderId));
+                  if (snap.exists()) {
+                    const data = snap.data();
+                    const normalizedStatus = normalizeStatus(data.status);
+                    if (isPaidStatus(normalizedStatus) || isFailedStatus(normalizedStatus)) {
+                      setOrderStatus(normalizedStatus);
+                      // This will trigger the useEffect for onSnapshot logic if it didn't fire
+                    } else {
+                      setStatus("Still waiting for M-Pesa... Please check your phone.");
+                    }
+                  }
+                } catch (err) {
+                  console.error("Manual check failed:", err);
+                }
+              }}
+            >
+              Refresh Status
+            </button>
+          )}
+
           {status && <p className={`status ${status.includes("failed") ? "error" : ""}`}>{status}</p>}
           {orderId && (
             <div className="order-success">
