@@ -3,10 +3,18 @@ import { io } from "socket.io-client";
 const BASE_URL = import.meta.env.VITE_API_BASE_URL || "https://xecoflow.onrender.com";
 const GATEWAY_URL = import.meta.env.VITE_XECO_GATEWAY_URL || `${BASE_URL}/api/v1/gateway`;
 const API_KEY = import.meta.env.VITE_XECO_API_KEY;
-const SHORTCODE = import.meta.env.VITE_XECO_BUSINESS_SHORTCODE;
+const SHORTCODE = import.meta.env.VITE_XECO_BUSINESS_SHORTCODE || "9203342";
 const CALLBACK_URL =
   import.meta.env.VITE_XECO_CALLBACK_URL ||
   "https://webhook.site/d9700924-7eaa-4842-ac57-b9398ac0c54a";
+
+console.log("Payment Config Checked:", {
+  hasApiKey: !!API_KEY,
+  shortcode: SHORTCODE,
+  callbackUrl: CALLBACK_URL,
+  baseUrl: BASE_URL,
+  gatewayUrl: GATEWAY_URL
+});
 
 /**
  * Initiates an MPESA STK Push via XECO Gateway
