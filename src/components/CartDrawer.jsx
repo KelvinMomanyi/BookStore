@@ -11,7 +11,11 @@ import {
 import { db } from "../firebase.js";
 import { useCart } from "../state/CartContext.jsx";
 import { formatCurrency } from "../utils/format.js";
-import { initiateStkPush, setupSocket } from "../utils/paymentService.js";
+import {
+  initiateStkPush,
+  normalizePhoneForGateway,
+  setupSocket
+} from "../utils/paymentService.js";
 import { isFailedStatus, isPaidStatus, normalizeStatus } from "../utils/orderStatus.js";
 
 const storeOrder = (order) => {
@@ -224,15 +228,26 @@ export default function CartDrawer() {
     resetOrderState();
 
     if (!items.length) return;
-    if (!phoneNumber.trim()) {
+    const rawPhone = phoneNumber.trim();
+    if (!rawPhone) {
       setStatus("Enter your M-Pesa phone number.");
+      return;
+    }
+
+    if (total < 10) {
+      setStatus("Minimum M-Pesa amount is KES 10.");
+      return;
+    }
+
+    const deliveryPhone = normalizePhoneForGateway(rawPhone);
+    if (!deliveryPhone) {
+      setStatus("Use a valid M-Pesa number (e.g. 2547XXXXXXXX, 07XXXXXXXX, or 01XXXXXXXX).");
       return;
     }
 
     setPlacing(true);
 
     const orderItems = buildOrderItems(items);
-    const deliveryPhone = phoneNumber.trim();
 
     let docRef;
     try {
@@ -319,10 +334,8 @@ export default function CartDrawer() {
           const response = await initiateStkPush({
             phoneNumber: deliveryPhone,
             amount: total,
-            userId: deliveryPhone,
             socketId,
-            accountReference: docRef.id,
-            description: `Order ${docRef.id}`
+            accountReference: docRef.id
           });
 
           await updateDoc(orderDocRef, {

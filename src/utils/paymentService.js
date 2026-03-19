@@ -3,10 +3,25 @@ import { io } from "socket.io-client";
 const BASE_URL = import.meta.env.VITE_API_BASE_URL || "https://xecoflow.onrender.com";
 const GATEWAY_URL = import.meta.env.VITE_XECO_GATEWAY_URL || `${BASE_URL}/api/v1/gateway`;
 const API_KEY = (import.meta.env.VITE_XECO_API_KEY || "").trim();
-const SHORTCODE = import.meta.env.VITE_XECO_BUSINESS_SHORTCODE || "9203342";
-const CALLBACK_URL =
-  import.meta.env.VITE_XECO_CALLBACK_URL ||
-  "https://webhook.site/d9700924-7eaa-4842-ac57-b9398ac0c54a";
+const MIN_STK_AMOUNT = 10;
+
+export const normalizePhoneForGateway = (value) => {
+  const digits = (value || "").toString().replace(/\D/g, "");
+
+  if (/^254\d{9}$/.test(digits)) {
+    return digits;
+  }
+
+  if (/^0\d{9}$/.test(digits)) {
+    return `254${digits.slice(1)}`;
+  }
+
+  if (/^[17]\d{8}$/.test(digits)) {
+    return `254${digits}`;
+  }
+
+  return "";
+};
 
 const getMissingPaymentConfig = () => {
   const missing = [];
@@ -38,8 +53,6 @@ const getErrorMessageFromResponse = async (response) => {
 
 console.log("Payment Config Checked:", {
   hasApiKey: !!API_KEY,
-  shortcode: SHORTCODE,
-  callbackUrl: CALLBACK_URL,
   baseUrl: BASE_URL,
   gatewayUrl: GATEWAY_URL
 });
@@ -59,16 +72,30 @@ export const initiateStkPush = async (data) => {
     );
   }
 
+  const phone = normalizePhoneForGateway(data.phoneNumber);
+  if (!phone) {
+    throw new Error(
+      "Enter a valid M-Pesa number. Use 254XXXXXXXXX, 07XXXXXXXX, or 01XXXXXXXX."
+    );
+  }
+
+  const amount = Number(data.amount);
+  if (!Number.isFinite(amount) || amount < MIN_STK_AMOUNT) {
+    throw new Error(`Minimum M-Pesa amount is KES ${MIN_STK_AMOUNT}.`);
+  }
+
   const payload = {
-    phoneNumber: data.phoneNumber,
-    amount: data.amount,
-    userId: data.userId,
-    businessShortcode: SHORTCODE,
-    callbackUrl: data.callbackUrl || CALLBACK_URL,
-    description: data.description || "Book Store Purchase",
-    accountReference: data.accountReference || data.userId || "BookStore",
-    socketId: data.socketId
+    phone,
+    amount
   };
+
+  if (data.accountReference || data.userId) {
+    payload.accountReference = data.accountReference || data.userId || "BookStore";
+  }
+
+  if (data.socketId) {
+    payload.socketId = data.socketId;
+  }
 
   console.log("Initiating STK Push with payload:", payload);
 
