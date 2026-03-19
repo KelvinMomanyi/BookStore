@@ -116,6 +116,9 @@ export default function CartDrawer() {
   const [purchasedItems, setPurchasedItems] = useState([]);
   const socketRef = useRef(null);
   const timeoutRef = useRef(null);
+  const paymentPendingRef = useRef(false);
+  const paymentSettledRef = useRef(false);
+  const stkRequestSentRef = useRef(false);
 
   const total = useMemo(() => summary.subtotal, [summary.subtotal]);
 
@@ -127,6 +130,9 @@ export default function CartDrawer() {
       if (socketRef.current) {
         socketRef.current.disconnect();
       }
+      paymentPendingRef.current = false;
+      paymentSettledRef.current = false;
+      stkRequestSentRef.current = false;
     };
   }, []);
 
@@ -201,6 +207,9 @@ export default function CartDrawer() {
     setOrderId("");
     setOrderStatus("");
     setPurchasedItems([]);
+    paymentPendingRef.current = false;
+    paymentSettledRef.current = false;
+    stkRequestSentRef.current = false;
     if (timeoutRef.current) {
       clearTimeout(timeoutRef.current);
       timeoutRef.current = null;
@@ -212,6 +221,9 @@ export default function CartDrawer() {
   };
 
   const finalizeCheckout = () => {
+    paymentPendingRef.current = false;
+    paymentSettledRef.current = true;
+    stkRequestSentRef.current = false;
     setPlacing(false);
     if (timeoutRef.current) {
       clearTimeout(timeoutRef.current);
@@ -245,6 +257,9 @@ export default function CartDrawer() {
       return;
     }
 
+    paymentPendingRef.current = true;
+    paymentSettledRef.current = false;
+    stkRequestSentRef.current = false;
     setPlacing(true);
 
     const orderItems = buildOrderItems(items);
@@ -284,10 +299,54 @@ export default function CartDrawer() {
       const newSocket = setupSocket();
       socketRef.current = newSocket;
 
+      const settleOnce = () => {
+        if (paymentSettledRef.current) return false;
+        paymentSettledRef.current = true;
+        return true;
+      };
+
+      const normalizeGatewayStatus = (value) =>
+        (value || "").toString().trim().toLowerCase();
+
+      const extractResultCode = (payload) =>
+        payload?.ResultCode ??
+        payload?.resultCode ??
+        payload?.Body?.stkCallback?.ResultCode ??
+        payload?.Body?.stkCallback?.resultCode ??
+        null;
+
+      const isGatewaySuccess = (payload) => {
+        const statusValue = normalizeGatewayStatus(payload?.status);
+        const resultCode = extractResultCode(payload);
+        return (
+          statusValue === "payment_success" ||
+          statusValue === "success" ||
+          statusValue === "paid" ||
+          resultCode === 0 ||
+          resultCode === "0"
+        );
+      };
+
+      const isGatewayFailure = (payload) => {
+        const statusValue = normalizeGatewayStatus(payload?.status);
+        const resultCode = extractResultCode(payload);
+        return (
+          statusValue === "payment_cancelled" ||
+          statusValue === "payment_canceled" ||
+          statusValue === "payment_failed" ||
+          statusValue === "failed" ||
+          statusValue === "cancelled" ||
+          statusValue === "canceled" ||
+          statusValue === "timeout" ||
+          statusValue === "error" ||
+          (resultCode !== null && resultCode !== undefined && resultCode !== 0 && resultCode !== "0")
+        );
+      };
+
       const handleFailure = async (error) => {
+        if (!settleOnce()) return;
         const msg = error?.message || error?.ResultDesc || "Payment cancelled or timed out.";
         setStatus(`Payment failed: ${msg}`);
-        setPlacing(false);
         try {
           await updateDoc(orderDocRef, {
             status: "failed",
@@ -297,11 +356,13 @@ export default function CartDrawer() {
           });
         } catch {
           // ignore update failures
+        } finally {
+          finalizeCheckout();
         }
-        finalizeCheckout();
       };
 
       const handleSuccess = async (data) => {
+        if (!settleOnce()) return;
         const transactionId =
           data?.CheckoutRequestID ||
           data?.MpesaReceiptNumber ||
@@ -318,15 +379,17 @@ export default function CartDrawer() {
               data?.ResultCode ?? data?.Body?.stkCallback?.ResultCode ?? null,
             "payment.updatedAt": serverTimestamp()
           });
-          setPlacing(false);
-          finalizeCheckout();
         } catch (err) {
           console.error("Failed to update order status:", err);
           setStatus("Payment received, but we're having trouble updating your order. Please refresh.");
+        } finally {
+          finalizeCheckout();
         }
       };
 
       const onConnect = async () => {
+        if (stkRequestSentRef.current) return;
+        stkRequestSentRef.current = true;
         const socketId = newSocket.id;
         setStatus("Initiating M-Pesa STK Push...");
 
@@ -379,33 +442,47 @@ export default function CartDrawer() {
       });
 
       // The XECO gateway sends updates through this event
-      newSocket.on("payment-update", (data) => {
+      const handleGatewayUpdate = (data) => {
         const update = Array.isArray(data) ? data[0] : data;
+        if (!update) return;
+        const payload = update.data || update.Body?.stkCallback || update;
         if (
-          update?.status === "PAYMENT_SUCCESS" ||
-          update?.ResultCode === 0 ||
-          update?.Body?.stkCallback?.ResultCode === 0
+          isGatewaySuccess(update) ||
+          isGatewaySuccess(payload)
         ) {
-          handleSuccess(update.data || update.Body?.stkCallback || update);
+          handleSuccess(payload);
         } else if (
-          update?.status === "PAYMENT_CANCELLED" ||
-          update?.status === "PAYMENT_FAILED"
+          isGatewayFailure(update) ||
+          isGatewayFailure(payload)
         ) {
           handleFailure({
-            message: update.message || update.ResultDesc || `Payment ${update.status.toLowerCase()}`
+            message:
+              update.message ||
+              payload?.ResultDesc ||
+              payload?.resultDesc ||
+              (update?.status ? `Payment ${normalizeGatewayStatus(update.status)}` : "Payment failed")
           });
         }
-      });
+      };
+
+      newSocket.on("payment-update", handleGatewayUpdate);
+      newSocket.on("payment_update", handleGatewayUpdate);
 
       newSocket.on("payment_success", handleSuccess);
       newSocket.on("payment_failed", handleFailure);
       newSocket.on("payment_error", handleFailure);
       newSocket.on("payment_cancelled", handleFailure);
+      newSocket.on("payment_canceled", handleFailure);
       newSocket.on("stk_cancel", handleFailure);
+      newSocket.on("stk_cancelled", handleFailure);
       newSocket.on("stk_failed", handleFailure);
 
       timeoutRef.current = setTimeout(() => {
-        if (newSocket.connected && placing) {
+        if (
+          newSocket.connected &&
+          paymentPendingRef.current &&
+          !paymentSettledRef.current
+        ) {
           handleFailure({ message: "Request timed out. Please try again." });
         }
       }, 90000);
