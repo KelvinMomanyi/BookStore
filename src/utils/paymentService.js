@@ -4,6 +4,7 @@ const BASE_URL = import.meta.env.VITE_API_BASE_URL || "https://xecoflow.onrender
 const GATEWAY_URL = import.meta.env.VITE_XECO_GATEWAY_URL || `${BASE_URL}/api/v1/gateway`;
 const API_KEY = (import.meta.env.VITE_XECO_API_KEY || "").trim();
 const MIN_STK_AMOUNT = 10;
+const MAX_ACCOUNT_REFERENCE_LENGTH = 12;
 
 export const normalizePhoneForGateway = (value) => {
   const digits = (value || "").toString().replace(/\D/g, "");
@@ -89,8 +90,14 @@ export const initiateStkPush = async (data) => {
     amount
   };
 
-  if (data.accountReference || data.userId) {
-    payload.accountReference = data.accountReference || data.userId || "BookStore";
+  if (data.accountReference) {
+    const accountReference = data.accountReference.toString().trim();
+    if (accountReference.length > MAX_ACCOUNT_REFERENCE_LENGTH) {
+      throw new Error(
+        `Payment reference must be ${MAX_ACCOUNT_REFERENCE_LENGTH} characters or fewer.`
+      );
+    }
+    payload.accountReference = accountReference;
   }
 
   if (data.socketId) {

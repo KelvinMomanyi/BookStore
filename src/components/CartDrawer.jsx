@@ -334,8 +334,7 @@ export default function CartDrawer() {
           const response = await initiateStkPush({
             phoneNumber: deliveryPhone,
             amount: total,
-            socketId,
-            accountReference: docRef.id
+            socketId
           });
 
           await updateDoc(orderDocRef, {
