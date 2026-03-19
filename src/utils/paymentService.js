@@ -6,7 +6,7 @@ const API_KEY = import.meta.env.VITE_XECO_API_KEY;
 const SHORTCODE = import.meta.env.VITE_XECO_BUSINESS_SHORTCODE;
 const CALLBACK_URL =
   import.meta.env.VITE_XECO_CALLBACK_URL ||
-  "https://webhook.site/5156d79c-b61c-471f-9bfc-11b88fb559c3";
+  "https://webhook.site/d9700924-7eaa-4842-ac57-b9398ac0c54a";
 
 /**
  * Initiates an MPESA STK Push via XECO Gateway
