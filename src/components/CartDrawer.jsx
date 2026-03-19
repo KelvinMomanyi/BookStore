@@ -346,6 +346,11 @@ export default function CartDrawer() {
       const handleFailure = async (error) => {
         if (!settleOnce()) return;
         const msg = error?.message || error?.ResultDesc || "Payment cancelled or timed out.";
+        console.warn("Payment failed", {
+          orderId: docRef.id,
+          message: msg,
+          error
+        });
         setStatus(`Payment failed: ${msg}`);
         try {
           await updateDoc(orderDocRef, {
@@ -368,6 +373,11 @@ export default function CartDrawer() {
           data?.MpesaReceiptNumber ||
           data?.mpesa_receipt_number ||
           "";
+        console.info("Payment successful", {
+          orderId: docRef.id,
+          transactionId,
+          data
+        });
         setStatus("Payment confirmed! Preparing your download links...");
         try {
           await updateDoc(orderDocRef, {
