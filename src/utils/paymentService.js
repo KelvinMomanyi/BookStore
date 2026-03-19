@@ -3,7 +3,12 @@ import { io } from "socket.io-client";
 const BASE_URL = import.meta.env.VITE_API_BASE_URL || "https://xecoflow.onrender.com";
 const GATEWAY_URL = import.meta.env.VITE_XECO_GATEWAY_URL || `${BASE_URL}/api/v1/gateway`;
 const API_KEY = (import.meta.env.VITE_XECO_API_KEY || "").trim();
-const MIN_STK_AMOUNT = 10;
+const SHORTCODE = import.meta.env.VITE_XECO_BUSINESS_SHORTCODE || "9203342";
+const CALLBACK_URL =
+  import.meta.env.VITE_XECO_CALLBACK_URL ||
+  "https://webhook.site/d9700924-7eaa-4842-ac57-b9398ac0c54a";
+
+const MIN_STK_AMOUNT = 1;
 const MAX_ACCOUNT_REFERENCE_LENGTH = 12;
 
 export const normalizePhoneForGateway = (value) => {
@@ -54,6 +59,7 @@ const getErrorMessageFromResponse = async (response) => {
 
 console.log("Payment Config Checked:", {
   hasApiKey: !!API_KEY,
+  shortcode: SHORTCODE,
   baseUrl: BASE_URL,
   gatewayUrl: GATEWAY_URL
 });
@@ -85,24 +91,20 @@ export const initiateStkPush = async (data) => {
     throw new Error(`Minimum M-Pesa amount is KES ${MIN_STK_AMOUNT}.`);
   }
 
+  // Restore the complete payload expected by the gateway
   const payload = {
-    phone,
-    amount
+    phoneNumber: phone,
+    amount,
+    userId: data.userId || phone,
+    businessShortcode: SHORTCODE,
+    callbackUrl: data.callbackUrl || CALLBACK_URL,
+    description: data.description || "Book Store Purchase",
+    accountReference: (data.accountReference || data.userId || "Order")
+      .toString()
+      .trim()
+      .slice(0, MAX_ACCOUNT_REFERENCE_LENGTH),
+    socketId: data.socketId
   };
-
-  if (data.accountReference) {
-    const accountReference = data.accountReference.toString().trim();
-    if (accountReference.length > MAX_ACCOUNT_REFERENCE_LENGTH) {
-      throw new Error(
-        `Payment reference must be ${MAX_ACCOUNT_REFERENCE_LENGTH} characters or fewer.`
-      );
-    }
-    payload.accountReference = accountReference;
-  }
-
-  if (data.socketId) {
-    payload.socketId = data.socketId;
-  }
 
   console.log("Initiating STK Push with payload:", payload);
 
