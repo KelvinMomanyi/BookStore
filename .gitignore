@@ -22,6 +22,7 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+.game-firebase.json
 
 # Firebase
 .firebase

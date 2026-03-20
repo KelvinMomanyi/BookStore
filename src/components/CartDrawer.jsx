@@ -169,10 +169,17 @@ export default function CartDrawer() {
         } else if (isFailedStatus(normalizedStatus)) {
           const reason =
             data.failureReason || data.payment?.failureReason || "";
+          const isCancelled =
+            normalizedStatus === "cancelled" ||
+            normalizedStatus === "canceled" ||
+            normalizedStatus === "payment_cancelled" ||
+            normalizedStatus === "payment_canceled";
           setStatus(
             reason
-              ? `Payment failed: ${reason}`
-              : "Payment failed. Please try again."
+              ? `${isCancelled ? "Payment cancelled" : "Payment failed"}: ${reason}`
+              : isCancelled
+                ? "Payment was cancelled."
+                : "Payment failed. Please try again."
           );
           setPlacing(false);
           if (socketRef.current) {
@@ -344,20 +351,81 @@ export default function CartDrawer() {
         );
       };
 
-      const handleFailure = async (error) => {
+      const isGatewayCancellation = (payload, eventName = "") => {
+        const statusValue = normalizeGatewayStatus(payload?.status);
+        const resultCode = extractResultCode(payload);
+        const eventValue = normalizeGatewayStatus(eventName);
+
+        return (
+          statusValue === "payment_cancelled" ||
+          statusValue === "payment_canceled" ||
+          statusValue === "cancelled" ||
+          statusValue === "canceled" ||
+          eventValue.includes("cancel") ||
+          resultCode === 1032 ||
+          resultCode === "1032"
+        );
+      };
+
+      const getGatewayPayload = (value) => {
+        const source = Array.isArray(value) ? value[0] : value;
+        return source?.data || source?.Body?.stkCallback || source;
+      };
+
+      const getFailureMessage = (payload, eventName = "") => {
+        const resultCode = extractResultCode(payload);
+        const rawMessage =
+          payload?.message ||
+          payload?.ResultDesc ||
+          payload?.resultDesc ||
+          payload?.error ||
+          "";
+
+        if (resultCode === 1032 || resultCode === "1032") {
+          return "Payment was cancelled on phone.";
+        }
+        if (resultCode === 1037 || resultCode === "1037") {
+          return "Payment request timed out on phone.";
+        }
+        if (rawMessage) {
+          return rawMessage;
+        }
+
+        if (isGatewayCancellation(payload, eventName)) {
+          return "Payment was cancelled.";
+        }
+
+        const statusValue = normalizeGatewayStatus(payload?.status);
+        if (statusValue) {
+          return `Payment ${statusValue.replace(/_/g, " ")}.`;
+        }
+
+        return "Payment failed.";
+      };
+
+      const handleFailure = async (error, failureStatus = "failed") => {
         if (!settleOnce()) return;
-        const msg = error?.message || error?.ResultDesc || "Payment cancelled or timed out.";
+        const msg =
+          error?.message ||
+          error?.ResultDesc ||
+          (failureStatus === "cancelled"
+            ? "Payment was cancelled."
+            : "Payment failed. Please try again.");
         console.warn("Payment failed", {
           orderId: docRef.id,
           message: msg,
           error
         });
-        setStatus(`Payment failed: ${msg}`);
+        setStatus(
+          failureStatus === "cancelled"
+            ? `Payment cancelled: ${msg}`
+            : `Payment failed: ${msg}`
+        );
         try {
           await updateDoc(orderDocRef, {
-            status: "failed",
+            status: failureStatus,
             failureReason: msg,
-            "payment.gatewayStatus": "failed",
+            "payment.gatewayStatus": failureStatus,
             "payment.updatedAt": serverTimestamp()
           });
         } catch {
@@ -395,6 +463,30 @@ export default function CartDrawer() {
           setStatus("Payment received, but we're having trouble updating your order. Please refresh.");
         } finally {
           finalizeCheckout();
+        }
+      };
+
+      const processGatewayEvent = (eventName, rawData) => {
+        console.log(`Socket Received [${eventName}]:`, rawData);
+        const payload = getGatewayPayload(rawData);
+        const safePayload =
+          payload && typeof payload === "object" ? payload : {};
+
+        if (isGatewaySuccess(payload) || isGatewaySuccess(rawData)) {
+          handleSuccess(safePayload);
+          return;
+        }
+
+        if (isGatewayFailure(payload) || isGatewayFailure(rawData)) {
+          const cancelled = isGatewayCancellation(payload, eventName);
+          handleFailure(
+            {
+              ...safePayload,
+              message: getFailureMessage(payload, eventName)
+            },
+            cancelled ? "cancelled" : "failed"
+          );
+          return;
         }
       };
 
@@ -468,46 +560,30 @@ export default function CartDrawer() {
 
       // The XECO gateway sends updates through this event
       newSocket.on("payment-update", (data) => {
-        console.log("Socket Received [payment-update]:", data);
-        const update = Array.isArray(data) ? data[0] : data;
-        if (
-          update?.status === "PAYMENT_SUCCESS" ||
-          update?.ResultCode === 0 ||
-          update?.Body?.stkCallback?.ResultCode === 0
-        ) {
-          handleSuccess(update.data || update.Body?.stkCallback || update);
-        } else if (
-          update?.status === "PAYMENT_CANCELLED" ||
-          update?.status === "PAYMENT_FAILED"
-        ) {
-          handleFailure({
-            message: update.message || update.ResultDesc || `Payment ${update.status.toLowerCase()}`
-          });
-        }
+        processGatewayEvent("payment-update", data);
       });
 
       const events = [
         "payment_success",
+        "PAYMENT_SUCCESS",
         "payment_failed",
+        "PAYMENT_FAILED",
         "payment_error",
         "payment_cancelled",
+        "PAYMENT_CANCELLED",
         "payment_canceled",
+        "PAYMENT_CANCELED",
         "stk_cancel",
         "stk_cancelled",
         "stk_failed",
         "stk_push_callback",
         "stk_push_status",
+        "stk_callback",
         "callback"
       ];
-      events.forEach(event => {
+      events.forEach((event) => {
         newSocket.on(event, (data) => {
-          console.log(`Socket Received [${event}]:`, data);
-          const payload = data?.data || data?.Body?.stkCallback || data;
-          if (event === "payment_success" || (event === "stk_push_callback" && payload?.ResultCode === 0)) {
-            handleSuccess(payload);
-          } else {
-            handleFailure(payload);
-          }
+          processGatewayEvent(event, data);
         });
       });
 
@@ -523,8 +599,6 @@ export default function CartDrawer() {
 
       if (newSocket.connected) {
         onConnect();
-      } else {
-        newSocket.on("connect", onConnect);
       }
     } catch {
       setStatus("Checkout failed. Please check your connection.");
@@ -642,7 +716,13 @@ export default function CartDrawer() {
             </button>
           )}
 
-          {status && <p className={`status ${status.includes("failed") ? "error" : ""}`}>{status}</p>}
+          {status && (
+            <p
+              className={`status ${/failed|cancelled|canceled/i.test(status) ? "error" : ""}`}
+            >
+              {status}
+            </p>
+          )}
           {orderId && (
             <div className="order-success">
               <div className="order-hint">

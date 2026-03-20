@@ -22,6 +22,7 @@ export const isFailedStatus = (value) => {
     status === "timeout" ||
     status === "expired" ||
     status === "payment_failed" ||
-    status === "payment_cancelled"
+    status === "payment_cancelled" ||
+    status === "payment_canceled"
   );
 };
