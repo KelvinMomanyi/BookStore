@@ -254,8 +254,8 @@ export default function CartDrawer() {
       return;
     }
 
-    if (total < 10) {
-      setStatus("Minimum M-Pesa amount is KES 10.");
+    if (total < 5) {
+      setStatus("Minimum M-Pesa amount is KES 5.");
       return;
     }
 
@@ -313,32 +313,64 @@ export default function CartDrawer() {
         return true;
       };
 
-      const normalizeGatewayStatus = (value) =>
+      const normalizeGatewayValue = (value) =>
         (value || "").toString().trim().toLowerCase();
 
       const extractResultCode = (payload) =>
         payload?.ResultCode ??
         payload?.resultCode ??
+        payload?.result_code ??
         payload?.Body?.stkCallback?.ResultCode ??
         payload?.Body?.stkCallback?.resultCode ??
         null;
 
-      const isGatewaySuccess = (payload) => {
-        const statusValue = normalizeGatewayStatus(payload?.status);
+      const getGatewayEvent = (payload, eventName = "") =>
+        normalizeGatewayValue(
+          payload?.event ??
+            payload?.eventName ??
+            payload?.event_name ??
+            payload?.type ??
+            eventName
+        );
+
+      const getGatewayStatus = (payload, eventName = "") =>
+        normalizeGatewayValue(
+          payload?.status ??
+            payload?.gatewayStatus ??
+            payload?.paymentStatus ??
+            payload?.payment_status ??
+            getGatewayEvent(payload, eventName)
+        );
+
+      const isGatewaySuccess = (payload, eventName = "") => {
+        const statusValue = getGatewayStatus(payload, eventName);
+        const eventValue = getGatewayEvent(payload, eventName);
         const resultCode = extractResultCode(payload);
         return (
+          statusValue === "payment.success" ||
           statusValue === "payment_success" ||
           statusValue === "success" ||
           statusValue === "paid" ||
+          statusValue === "payment_confirmed" ||
+          eventValue === "payment.success" ||
+          eventValue === "payment_success" ||
+          eventValue === "payment_confirmed" ||
+          eventValue === "success" ||
+          eventValue === "paid" ||
+          eventValue === "completed" ||
           resultCode === 0 ||
           resultCode === "0"
         );
       };
 
-      const isGatewayFailure = (payload) => {
-        const statusValue = normalizeGatewayStatus(payload?.status);
+      const isGatewayFailure = (payload, eventName = "") => {
+        const statusValue = getGatewayStatus(payload, eventName);
+        const eventValue = getGatewayEvent(payload, eventName);
         const resultCode = extractResultCode(payload);
         return (
+          statusValue === "payment.failed" ||
+          statusValue === "payment.canceled" ||
+          statusValue === "payment.cancelled" ||
           statusValue === "payment_cancelled" ||
           statusValue === "payment_canceled" ||
           statusValue === "payment_failed" ||
@@ -347,16 +379,29 @@ export default function CartDrawer() {
           statusValue === "canceled" ||
           statusValue === "timeout" ||
           statusValue === "error" ||
+          eventValue === "payment.failed" ||
+          eventValue === "payment.canceled" ||
+          eventValue === "payment.cancelled" ||
+          eventValue === "payment_failed" ||
+          eventValue === "payment_canceled" ||
+          eventValue === "payment_cancelled" ||
+          eventValue === "failed" ||
+          eventValue === "cancelled" ||
+          eventValue === "canceled" ||
+          eventValue === "timeout" ||
+          eventValue === "error" ||
           (resultCode !== null && resultCode !== undefined && resultCode !== 0 && resultCode !== "0")
         );
       };
 
       const isGatewayCancellation = (payload, eventName = "") => {
-        const statusValue = normalizeGatewayStatus(payload?.status);
+        const statusValue = getGatewayStatus(payload, eventName);
         const resultCode = extractResultCode(payload);
-        const eventValue = normalizeGatewayStatus(eventName);
+        const eventValue = getGatewayEvent(payload, eventName);
 
         return (
+          statusValue === "payment.cancelled" ||
+          statusValue === "payment.canceled" ||
           statusValue === "payment_cancelled" ||
           statusValue === "payment_canceled" ||
           statusValue === "cancelled" ||
@@ -369,13 +414,16 @@ export default function CartDrawer() {
 
       const getGatewayPayload = (value) => {
         const source = Array.isArray(value) ? value[0] : value;
-        return source?.data || source?.Body?.stkCallback || source;
+        return source?.data || source?.payload || source?.payment || source?.Body?.stkCallback || source;
       };
 
       const getFailureMessage = (payload, eventName = "") => {
         const resultCode = extractResultCode(payload);
         const rawMessage =
           payload?.message ||
+          payload?.failure_reason ||
+          payload?.failureReason ||
+          payload?.reason ||
           payload?.ResultDesc ||
           payload?.resultDesc ||
           payload?.error ||
@@ -395,9 +443,9 @@ export default function CartDrawer() {
           return "Payment was cancelled.";
         }
 
-        const statusValue = normalizeGatewayStatus(payload?.status);
+        const statusValue = getGatewayStatus(payload, eventName);
         if (statusValue) {
-          return `Payment ${statusValue.replace(/_/g, " ")}.`;
+          return `Payment ${statusValue.replace(/[_.]/g, " ")}.`;
         }
 
         return "Payment failed.";
@@ -407,6 +455,8 @@ export default function CartDrawer() {
         if (!settleOnce()) return;
         const msg =
           error?.message ||
+          error?.failure_reason ||
+          error?.failureReason ||
           error?.ResultDesc ||
           (failureStatus === "cancelled"
             ? "Payment was cancelled."
@@ -438,6 +488,8 @@ export default function CartDrawer() {
       const handleSuccess = async (data) => {
         if (!settleOnce()) return;
         const transactionId =
+          data?.transaction_id ||
+          data?.transactionId ||
           data?.CheckoutRequestID ||
           data?.MpesaReceiptNumber ||
           data?.mpesa_receipt_number ||
@@ -454,8 +506,7 @@ export default function CartDrawer() {
             paidAt: serverTimestamp(),
             "payment.gatewayStatus": "success",
             "payment.transactionId": transactionId,
-            "payment.resultCode":
-              data?.ResultCode ?? data?.Body?.stkCallback?.ResultCode ?? null,
+            "payment.resultCode": extractResultCode(data),
             "payment.updatedAt": serverTimestamp()
           });
         } catch (err) {
@@ -469,20 +520,28 @@ export default function CartDrawer() {
       const processGatewayEvent = (eventName, rawData) => {
         console.log(`Socket Received [${eventName}]:`, rawData);
         const payload = getGatewayPayload(rawData);
-        const safePayload =
-          payload && typeof payload === "object" ? payload : {};
+        const payloadData = payload && typeof payload === "object" ? payload : {};
+        const rawDataObject = rawData && typeof rawData === "object" ? rawData : {};
+        const mergedPayload = {
+          ...rawDataObject,
+          ...payloadData,
+          event:
+            payloadData?.event ||
+            rawDataObject?.event ||
+            eventName
+        };
 
-        if (isGatewaySuccess(payload) || isGatewaySuccess(rawData)) {
-          handleSuccess(safePayload);
+        if (isGatewaySuccess(mergedPayload, eventName)) {
+          handleSuccess(mergedPayload);
           return;
         }
 
-        if (isGatewayFailure(payload) || isGatewayFailure(rawData)) {
-          const cancelled = isGatewayCancellation(payload, eventName);
+        if (isGatewayFailure(mergedPayload, eventName)) {
+          const cancelled = isGatewayCancellation(mergedPayload, eventName);
           handleFailure(
             {
-              ...safePayload,
-              message: getFailureMessage(payload, eventName)
+              ...mergedPayload,
+              message: getFailureMessage(mergedPayload, eventName)
             },
             cancelled ? "cancelled" : "failed"
           );
@@ -534,10 +593,11 @@ export default function CartDrawer() {
 
       newSocket.on("connect_error", (err) => {
         console.error("Socket connection error:", err);
-        setStatus("Failed to connect to payment server.");
+        const message = err?.message || "Failed to connect to payment server.";
+        setStatus(message);
         updateDoc(orderDocRef, {
           status: "failed",
-          failureReason: "Payment server connection failed.",
+          failureReason: message,
           "payment.gatewayStatus": "failed",
           "payment.updatedAt": serverTimestamp()
         }).catch(() => {});
@@ -549,8 +609,17 @@ export default function CartDrawer() {
         onConnect();
       });
 
+      newSocket.on("connected", (data) => {
+        console.log("Business channel ready:", data);
+        onConnect();
+      });
+
       newSocket.on("disconnect", (reason) => {
         console.log("Socket disconnected:", reason);
+      });
+
+      newSocket.on("pong", (data) => {
+        console.log("Socket heartbeat:", data);
       });
 
       // Wildcard listener to see EVERYTHING the gateway sends
@@ -565,13 +634,18 @@ export default function CartDrawer() {
 
       const events = [
         "payment_success",
+        "payment.success",
         "PAYMENT_SUCCESS",
         "payment_failed",
+        "payment.failed",
         "PAYMENT_FAILED",
         "payment_error",
+        "payment.error",
         "payment_cancelled",
+        "payment.cancelled",
         "PAYMENT_CANCELLED",
         "payment_canceled",
+        "payment.canceled",
         "PAYMENT_CANCELED",
         "stk_cancel",
         "stk_cancelled",

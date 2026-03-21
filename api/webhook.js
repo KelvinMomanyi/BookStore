@@ -4,55 +4,260 @@ const normalize = (value) => (value || "").toString().trim().toLowerCase();
 
 const isPaidStatus = (value) => {
   const status = normalize(value);
-  return ["paid", "success", "completed", "confirmed", "payment_success"].includes(status);
+  return [
+    "paid",
+    "success",
+    "completed",
+    "confirmed",
+    "payment.success",
+    "payment_success",
+    "payment_confirmed"
+  ].includes(status);
 };
 
-const isSuccessResult = (resultCode) => {
+const isFailedStatus = (value) => {
+  const status = normalize(value);
+  return [
+    "failed",
+    "cancelled",
+    "canceled",
+    "timeout",
+    "expired",
+    "payment.failed",
+    "payment_failed",
+    "payment.cancelled",
+    "payment.canceled",
+    "payment_cancelled",
+    "payment_canceled"
+  ].includes(status);
+};
+
+const parseBody = (req) => {
+  if (req.body && typeof req.body === "object") {
+    return req.body;
+  }
+
+  if (typeof req.body === "string") {
+    try {
+      return JSON.parse(req.body);
+    } catch {
+      return { raw: req.body };
+    }
+  }
+
+  return {};
+};
+
+const readCallbackMetadata = (payload, name) => {
+  const items =
+    payload?.CallbackMetadata?.Item ||
+    payload?.Body?.stkCallback?.CallbackMetadata?.Item ||
+    [];
+
+  const match = Array.isArray(items)
+    ? items.find((item) => normalize(item?.Name) === normalize(name))
+    : null;
+
+  return match?.Value ?? null;
+};
+
+const toNumberOrNull = (value) => {
+  if (value === null || value === undefined || value === "") return null;
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? numeric : null;
+};
+
+const extractPaymentInfo = (payload) => {
+  const stkCallback = payload?.Body?.stkCallback || payload?.stkCallback || {};
+  const eventName =
+    payload?.event ??
+    payload?.Event ??
+    payload?.eventName ??
+    payload?.event_name ??
+    payload?.type ??
+    null;
+  const gatewayStatus =
+    payload?.status ??
+    payload?.paymentStatus ??
+    payload?.payment_status ??
+    eventName ??
+    null;
+
+  const resultCode =
+    payload?.ResultCode ??
+    payload?.resultCode ??
+    payload?.result_code ??
+    stkCallback?.ResultCode ??
+    null;
+  const resultDesc =
+    payload?.ResultDesc ?? payload?.resultDesc ?? stkCallback?.ResultDesc ?? "";
+  const checkoutRequestId =
+    payload?.CheckoutRequestID ||
+    payload?.checkoutRequestId ||
+    payload?.checkout_request_id ||
+    stkCallback?.CheckoutRequestID ||
+    null;
+  const merchantRequestId =
+    payload?.MerchantRequestID ||
+    payload?.merchantRequestId ||
+    payload?.merchant_request_id ||
+    stkCallback?.MerchantRequestID ||
+    null;
+  const accountReference =
+    payload?.AccountReference ||
+    payload?.accountReference ||
+    payload?.account_reference ||
+    null;
+  const transactionId =
+    payload?.transaction_id ||
+    payload?.transactionId ||
+    payload?.MpesaReceiptNumber ||
+    payload?.mpesaReceiptNumber ||
+    payload?.mpesa_receipt_number ||
+    readCallbackMetadata(payload, "MpesaReceiptNumber") ||
+    readCallbackMetadata(payload, "M_PESA_RECEIPT_NUMBER") ||
+    null;
+  const amount = toNumberOrNull(
+    payload?.Amount ??
+      payload?.amount ??
+      payload?.data?.amount ??
+      readCallbackMetadata(payload, "Amount") ??
+      null
+  );
+  const phoneNumber =
+    payload?.PhoneNumber ??
+    payload?.phoneNumber ??
+    payload?.phone ??
+    payload?.msisdn ??
+    readCallbackMetadata(payload, "PhoneNumber") ??
+    null;
+  const failureReason =
+    payload?.failure_reason ||
+    payload?.failureReason ||
+    payload?.reason ||
+    resultDesc ||
+    "";
+
+  return {
+    resultCode,
+    resultDesc,
+    eventName,
+    gatewayStatus,
+    checkoutRequestId,
+    merchantRequestId,
+    accountReference,
+    transactionId,
+    amount,
+    phoneNumber,
+    failureReason
+  };
+};
+
+const isSuccessResult = (resultCode, gatewayStatus = "", eventName = "") => {
   if (resultCode === 0 || resultCode === "0") return true;
-  const normalized = normalize(resultCode);
-  return normalized === "success" || normalized === "paid";
+  const normalizedResult = normalize(resultCode);
+  const status = normalize(gatewayStatus);
+  const event = normalize(eventName);
+
+  return (
+    normalizedResult === "success" ||
+    normalizedResult === "paid" ||
+    status === "success" ||
+    status === "paid" ||
+    status === "payment.success" ||
+    status === "payment_success" ||
+    status === "payment_confirmed" ||
+    event === "success" ||
+    event === "paid" ||
+    event === "payment.success" ||
+    event === "payment_success" ||
+    event === "payment_confirmed"
+  );
+};
+
+const isCancelledResult = (resultCode, gatewayStatus = "", eventName = "") => {
+  const status = normalize(gatewayStatus);
+  const event = normalize(eventName);
+  return (
+    resultCode === 1032 ||
+    resultCode === "1032" ||
+    status === "cancelled" ||
+    status === "canceled" ||
+    status === "payment.cancelled" ||
+    status === "payment.canceled" ||
+    status === "payment_cancelled" ||
+    status === "payment_canceled" ||
+    event.includes("cancel")
+  );
+};
+
+const isFailureResult = (resultCode, gatewayStatus = "", eventName = "") => {
+  if (isCancelledResult(resultCode, gatewayStatus, eventName)) return true;
+
+  const status = normalize(gatewayStatus);
+  const event = normalize(eventName);
+  if (
+    status === "failed" ||
+    status === "error" ||
+    status === "timeout" ||
+    status === "expired" ||
+    status === "payment.failed" ||
+    status === "payment_failed" ||
+    event === "failed" ||
+    event === "error" ||
+    event === "timeout" ||
+    event === "payment.failed" ||
+    event === "payment_failed"
+  ) {
+    return true;
+  }
+
+  return (
+    resultCode !== null &&
+    resultCode !== undefined &&
+    resultCode !== 0 &&
+    resultCode !== "0"
+  );
 };
 
 export default async function handler(req, res) {
-  // Always acknowledge the request immediately to satisfy the gateway
-  if (req.method === "POST") {
-    console.log("[WEBHOOK] Gateway request received. Sending early ACK.");
-    res.status(200).json({ received: true, ack: true });
-  } else {
+  if (req.method !== "POST") {
     return res.status(405).send("Method Not Allowed");
   }
 
-  const payload = req.body || {};
-  const stkCallback = payload?.Body?.stkCallback || payload?.stkCallback || {};
-  
-  const info = {
-    resultCode: payload?.ResultCode ?? stkCallback?.ResultCode ?? null,
-    resultDesc: payload?.ResultDesc ?? stkCallback?.ResultDesc ?? "",
-    checkoutRequestId: payload?.CheckoutRequestID || stkCallback?.CheckoutRequestID || payload?.checkoutRequestId || null,
-    merchantRequestId: payload?.MerchantRequestID || stkCallback?.MerchantRequestID || payload?.merchantRequestId || null,
-    accountReference: payload?.AccountReference || payload?.accountReference || null,
-    amount: payload?.Amount || payload?.amount || null,
-  };
+  const expectedToken = process.env.XECO_WEBHOOK_TOKEN;
+  if (expectedToken) {
+    const provided =
+      req.query?.token ||
+      req.headers["x-xeco-token"] ||
+      req.headers["x-webhook-token"];
+    if (provided !== expectedToken) {
+      return res.status(401).send("Unauthorized");
+    }
+  }
+
+  const payload = parseBody(req);
+  const info = extractPaymentInfo(payload);
 
   try {
-    // 1. Initialize Firebase Admin safely inside the handler
     if (!admin.apps.length) {
       if (!process.env.FIREBASE_CLIENT_EMAIL || !process.env.FIREBASE_PRIVATE_KEY) {
         throw new Error("Firebase credentials missing in Vercel environment variables.");
       }
+
       admin.initializeApp({
         credential: admin.credential.cert({
           projectId: process.env.VITE_FIREBASE_PROJECT_ID,
           clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
-          privateKey: process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, "\n"),
-        }),
+          privateKey: process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, "\n")
+        })
       });
     }
 
     const db = admin.firestore();
+    const FieldValue = admin.firestore.FieldValue;
     let orderRef = null;
 
-    // 2. Try match by accountReference (trimmed to 12 in frontend)
     if (info.accountReference) {
       const potentialRef = db.collection("orders").doc(info.accountReference);
       const snap = await potentialRef.get();
@@ -61,10 +266,21 @@ export default async function handler(req, res) {
       }
     }
 
-    // 3. Fallback to query by checkoutRequestId
     if (!orderRef && info.checkoutRequestId) {
-      const snapshot = await db.collection("orders")
+      const snapshot = await db
+        .collection("orders")
         .where("payment.checkoutRequestId", "==", info.checkoutRequestId)
+        .limit(1)
+        .get();
+      if (!snapshot.empty) {
+        orderRef = snapshot.docs[0].ref;
+      }
+    }
+
+    if (!orderRef && info.merchantRequestId) {
+      const snapshot = await db
+        .collection("orders")
+        .where("payment.merchantRequestId", "==", info.merchantRequestId)
         .limit(1)
         .get();
       if (!snapshot.empty) {
@@ -74,28 +290,80 @@ export default async function handler(req, res) {
 
     if (!orderRef) {
       console.warn("[WEBHOOK] No matching order found for payload:", info);
-      return;
+      return res.status(200).json({ received: true, matched: false });
     }
 
-    const isSuccess = isSuccessResult(info.resultCode);
+    const snap = await orderRef.get();
+    if (!snap.exists) {
+      return res.status(200).json({ received: true, matched: false });
+    }
+
+    const current = snap.data() || {};
+    const currentStatus = normalize(current.status);
+    const isSuccess = isSuccessResult(
+      info.resultCode,
+      info.gatewayStatus,
+      info.eventName
+    );
+    const isFailure = isFailureResult(
+      info.resultCode,
+      info.gatewayStatus,
+      info.eventName
+    );
+    const isCancelled = isCancelledResult(
+      info.resultCode,
+      info.gatewayStatus,
+      info.eventName
+    );
+
     const updates = {
-      "payment.gatewayStatus": isSuccess ? "success" : "failed",
-      "payment.resultCode": info.resultCode,
-      "payment.resultDesc": info.resultDesc,
-      "payment.updatedAt": admin.firestore.FieldValue.serverTimestamp(),
+      "payment.gatewayStatus": isSuccess
+        ? "success"
+        : isFailure
+          ? isCancelled
+            ? "cancelled"
+            : "failed"
+          : normalize(info.gatewayStatus) || "pending",
+      "payment.resultCode": info.resultCode ?? null,
+      "payment.resultDesc": info.resultDesc || info.failureReason || "",
+      "payment.transactionId": info.transactionId || "",
+      "payment.phoneNumber": info.phoneNumber || "",
+      "payment.amount": info.amount ?? null,
+      "payment.updatedAt": FieldValue.serverTimestamp()
     };
 
-    if (isSuccess) {
-      updates.status = "paid";
-      updates.paidAt = admin.firestore.FieldValue.serverTimestamp();
-    } else {
-      updates.status = "failed";
-      updates.failureReason = info.resultDesc || "Payment failed";
+    const amountMismatch =
+      typeof info.amount === "number" &&
+      typeof current.total === "number" &&
+      Math.abs(info.amount - current.total) > 0.01;
+
+    if (amountMismatch) {
+      updates["payment.amountMismatch"] = true;
+      updates["payment.amountExpected"] = current.total;
+      updates.status = "review";
+    } else if (isSuccess) {
+      if (!isPaidStatus(currentStatus)) {
+        updates.status = "paid";
+        updates.paidAt = FieldValue.serverTimestamp();
+      }
+    } else if (isFailure) {
+      if (!isFailedStatus(currentStatus)) {
+        updates.status = isCancelled ? "cancelled" : "failed";
+        updates.failureReason =
+          info.failureReason ||
+          info.resultDesc ||
+          (isCancelled ? "Payment cancelled" : "Payment failed");
+      }
     }
 
     await orderRef.update(updates);
     console.info("[WEBHOOK] Order updated successfully:", orderRef.id);
+    return res.status(200).json({ received: true, matched: true });
   } catch (err) {
     console.error("[WEBHOOK] Processing Error:", err.message);
+    return res.status(500).json({
+      received: false,
+      error: "Webhook processing failed"
+    });
   }
 }

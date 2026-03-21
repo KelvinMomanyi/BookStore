@@ -16,6 +16,7 @@ const isPaidStatus = (value) => {
     status === "success" ||
     status === "completed" ||
     status === "confirmed" ||
+    status === "payment.success" ||
     status === "payment_success" ||
     status === "payment-confirmed"
   );
@@ -29,7 +30,10 @@ const isFailedStatus = (value) => {
     status === "canceled" ||
     status === "timeout" ||
     status === "expired" ||
+    status === "payment.failed" ||
     status === "payment_failed" ||
+    status === "payment.cancelled" ||
+    status === "payment.canceled" ||
     status === "payment_cancelled"
   );
 };
@@ -59,11 +63,31 @@ const readCallbackMetadata = (payload, name) => {
   return match?.Value ?? null;
 };
 
+const toNumberOrNull = (value) => {
+  if (value === null || value === undefined || value === "") return null;
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? numeric : null;
+};
+
 const extractPaymentInfo = (payload) => {
   const stkCallback = payload?.Body?.stkCallback || payload?.stkCallback || {};
+  const eventName =
+    payload?.event ??
+    payload?.Event ??
+    payload?.eventName ??
+    payload?.event_name ??
+    payload?.type ??
+    null;
+  const gatewayStatus =
+    payload?.status ??
+    payload?.paymentStatus ??
+    payload?.payment_status ??
+    eventName ??
+    null;
   const resultCode =
     payload?.ResultCode ??
     payload?.resultCode ??
+    payload?.result_code ??
     stkCallback?.ResultCode ??
     null;
   const resultDesc =
@@ -84,39 +108,115 @@ const extractPaymentInfo = (payload) => {
     payload?.account_reference ||
     null;
   const receipt =
+    payload?.transaction_id ||
+    payload?.transactionId ||
     payload?.MpesaReceiptNumber ||
     payload?.mpesaReceiptNumber ||
     payload?.mpesa_receipt_number ||
     readCallbackMetadata(payload, "MpesaReceiptNumber") ||
     readCallbackMetadata(payload, "M_PESA_RECEIPT_NUMBER") ||
     null;
-  const amount =
+  const amountRaw =
     payload?.Amount ??
     payload?.amount ??
+    payload?.data?.amount ??
     readCallbackMetadata(payload, "Amount") ??
     null;
+  const amount = toNumberOrNull(amountRaw);
   const phoneNumber =
     payload?.PhoneNumber ??
     payload?.phoneNumber ??
+    payload?.phone ??
+    payload?.msisdn ??
     readCallbackMetadata(payload, "PhoneNumber") ??
     null;
+  const failureReason =
+    payload?.failure_reason ||
+    payload?.failureReason ||
+    payload?.reason ||
+    resultDesc ||
+    "";
 
   return {
     resultCode,
     resultDesc,
+    eventName,
+    gatewayStatus,
     checkoutRequestId,
     merchantRequestId,
     accountReference,
     receipt,
+    transactionId: receipt,
+    failureReason,
     amount,
     phoneNumber
   };
 };
 
-const isSuccessResult = (resultCode) => {
+const isSuccessResult = (resultCode, gatewayStatus = "", eventName = "") => {
   if (resultCode === 0 || resultCode === "0") return true;
   const normalized = normalize(resultCode);
-  return normalized === "success" || normalized === "paid";
+  const status = normalize(gatewayStatus);
+  const event = normalize(eventName);
+  return (
+    normalized === "success" ||
+    normalized === "paid" ||
+    status === "success" ||
+    status === "paid" ||
+    status === "payment.success" ||
+    status === "payment_success" ||
+    status === "payment_confirmed" ||
+    event === "success" ||
+    event === "paid" ||
+    event === "payment.success" ||
+    event === "payment_success" ||
+    event === "payment_confirmed"
+  );
+};
+
+const isCancelledResult = (resultCode, gatewayStatus = "", eventName = "") => {
+  const status = normalize(gatewayStatus);
+  const event = normalize(eventName);
+  return (
+    resultCode === 1032 ||
+    resultCode === "1032" ||
+    status === "cancelled" ||
+    status === "canceled" ||
+    status === "payment.cancelled" ||
+    status === "payment.canceled" ||
+    status === "payment_cancelled" ||
+    status === "payment_canceled" ||
+    event.includes("cancel")
+  );
+};
+
+const isFailureResult = (resultCode, gatewayStatus = "", eventName = "") => {
+  if (isCancelledResult(resultCode, gatewayStatus, eventName)) return true;
+
+  const status = normalize(gatewayStatus);
+  const event = normalize(eventName);
+  if (
+    status === "failed" ||
+    status === "error" ||
+    status === "timeout" ||
+    status === "expired" ||
+    status === "payment.failed" ||
+    status === "payment_failed" ||
+    event === "failed" ||
+    event === "error" ||
+    event === "timeout" ||
+    event === "payment.failed" ||
+    event === "payment_failed"
+  ) {
+    return true;
+  }
+
+  return (
+    resultCode !== null &&
+    resultCode !== undefined &&
+    resultCode !== 0 &&
+    resultCode !== "0"
+  );
 };
 
 exports.xecoWebhook = onRequest(async (req, res) => {
@@ -195,14 +295,33 @@ exports.xecoWebhook = onRequest(async (req, res) => {
 
   const current = snap.data() || {};
   const currentStatus = normalize(current.status);
+  const isSuccess = isSuccessResult(
+    info.resultCode,
+    info.gatewayStatus,
+    info.eventName
+  );
+  const isFailure = isFailureResult(
+    info.resultCode,
+    info.gatewayStatus,
+    info.eventName
+  );
+  const isCancelled = isCancelledResult(
+    info.resultCode,
+    info.gatewayStatus,
+    info.eventName
+  );
 
   const updates = {
-    "payment.gatewayStatus": isSuccessResult(info.resultCode)
+    "payment.gatewayStatus": isSuccess
       ? "success"
-      : "failed",
+      : isFailure
+        ? isCancelled
+          ? "cancelled"
+          : "failed"
+        : normalize(info.gatewayStatus) || "pending",
     "payment.resultCode": info.resultCode ?? null,
-    "payment.resultDesc": info.resultDesc || "",
-    "payment.transactionId": info.receipt || "",
+    "payment.resultDesc": info.resultDesc || info.failureReason || "",
+    "payment.transactionId": info.transactionId || "",
     "payment.phoneNumber": info.phoneNumber || "",
     "payment.amount": info.amount ?? null,
     "payment.updatedAt": FieldValue.serverTimestamp()
@@ -217,15 +336,18 @@ exports.xecoWebhook = onRequest(async (req, res) => {
     updates["payment.amountMismatch"] = true;
     updates["payment.amountExpected"] = current.total;
     updates.status = "review";
-  } else if (isSuccessResult(info.resultCode)) {
+  } else if (isSuccess) {
     if (!isPaidStatus(currentStatus)) {
       updates.status = "paid";
       updates.paidAt = FieldValue.serverTimestamp();
     }
-  } else {
+  } else if (isFailure) {
     if (!isFailedStatus(currentStatus)) {
-      updates.status = "failed";
-      updates.failureReason = info.resultDesc || "Payment failed";
+      updates.status = isCancelled ? "cancelled" : "failed";
+      updates.failureReason =
+        info.failureReason ||
+        info.resultDesc ||
+        (isCancelled ? "Payment cancelled" : "Payment failed");
     }
   }
 

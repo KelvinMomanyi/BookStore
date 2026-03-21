@@ -8,6 +8,13 @@ A responsive ebook commerce store with Firebase-backed catalog management.
 2. Create `.env` based on `.env.example` with your Firebase config.
 3. Run the app: `npm run dev`
 
+Required payment env keys:
+- `VITE_XECO_API_KEY`
+- `VITE_XECO_BUSINESS_SHORTCODE`
+- `VITE_XECO_GATEWAY_URL` (or `VITE_API_BASE_URL`)
+- `VITE_XECO_SOCKET_URL` (or `VITE_API_BASE_URL` + `VITE_XECO_SOCKET_NAMESPACE`)
+- `VITE_XECO_CALLBACK_URL`
+
 ## Firebase data model
 
 Collection: `books`
