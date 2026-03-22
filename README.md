@@ -1,4 +1,4 @@
-# NovaLeaf Books
+# Isaac books international
 
 A responsive ebook commerce store with Firebase-backed catalog management.
 

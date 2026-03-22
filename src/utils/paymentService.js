@@ -24,6 +24,26 @@ const SOCKET_URL = (
     : "")
 ).trim();
 
+const ensureSocketNamespace = (value) => {
+  const raw = (value || "").trim();
+  if (!raw) return raw;
+
+  const normalizedNamespace = `/${SOCKET_NAMESPACE.replace(/^\/+/, "")}`;
+  if (normalizedNamespace === "/") return raw;
+
+  try {
+    const parsed = new URL(raw);
+    const path = parsed.pathname.replace(/\/+$/, "");
+    if (!path || path === "/") {
+      parsed.pathname = normalizedNamespace;
+      return parsed.toString().replace(/\/+$/, "");
+    }
+    return raw;
+  } catch {
+    return raw;
+  }
+};
+
 export const normalizePhoneForGateway = (value) => {
   const digits = (value || "").toString().replace(/\D/g, "");
 
@@ -140,8 +160,6 @@ export const initiateStkPush = async (data) => {
     phoneNumber: phone,
     amount,
     userId: data.userId || phone,
-    businessShortcode: data.businessShortcode || SHORTCODE || undefined,
-    callbackUrl: data.callbackUrl || CALLBACK_URL || undefined,
     description: data.description || "Book Store Purchase",
     accountReference: (data.accountReference || data.userId || "Order")
       .toString()
@@ -150,6 +168,13 @@ export const initiateStkPush = async (data) => {
     socketId: data.socketId,
     socket_id: data.socketId
   };
+
+  // When using the server-side STK proxy, server env vars should control
+  // callback URL and shortcode to avoid client-side misconfiguration.
+  if (!USE_STK_PROXY) {
+    payload.businessShortcode = data.businessShortcode || SHORTCODE || undefined;
+    payload.callbackUrl = data.callbackUrl || CALLBACK_URL || undefined;
+  }
 
   console.log("Initiating STK Push with payload:", payload);
 
@@ -190,8 +215,9 @@ export const setupSocket = () => {
     );
   }
 
-  console.log("Setting up socket to:", SOCKET_URL);
-  const socket = io(SOCKET_URL, {
+  const socketUrl = ensureSocketNamespace(SOCKET_URL);
+  console.log("Setting up socket to:", socketUrl);
+  const socket = io(socketUrl, {
     auth: API_KEY ? { apiKey: API_KEY } : undefined,
     transports: ["websocket", "polling"],
     reconnection: true,

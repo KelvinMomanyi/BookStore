@@ -62,7 +62,7 @@ export default function BookDetails() {
           <p className="muted">by {book.author}</p>
           <p className="details-description">
             {book.description ||
-              "A beautifully digital ebook curated by Vitabu Kenya."}
+              "A beautifully digital ebook curated by Isaac books international."}
           </p>
           <div className="details-actions">
             <span className="price">{formatCurrency(book.price)}</span>

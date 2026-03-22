@@ -69,9 +69,11 @@ export default async function handler(req, res) {
     normalize(process.env.XECO_CALLBACK_URL) ||
     normalize(process.env.VITE_XECO_CALLBACK_URL);
 
+  // Prefer server-side configuration and only fall back to client-provided
+  // values when server env vars are unavailable.
   const businessShortcode =
-    normalize(body.businessShortcode) || fallbackShortcode;
-  const callbackUrl = normalize(body.callbackUrl) || fallbackCallbackUrl;
+    fallbackShortcode || normalize(body.businessShortcode);
+  const callbackUrl = fallbackCallbackUrl || normalize(body.callbackUrl);
 
   const missing = [];
   if (!gatewayStkUrl) {

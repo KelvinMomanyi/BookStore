@@ -12,8 +12,8 @@ export default function Navbar() {
       <div className="nav-blur" />
       <nav className="nav">
         <Link to="/" className="logo">
-          <span className="logo-mark">V</span>
-          Vitabu Kenya
+          <span className="logo-mark">I</span>
+          <span className="logo-text">Isaac books international</span>
         </Link>
         <div className="nav-links">
           <NavLink to="/" className={navLinkClass} end>
