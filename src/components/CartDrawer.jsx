@@ -559,14 +559,16 @@ export default function CartDrawer() {
           const response = await initiateStkPush({
             phoneNumber: deliveryPhone,
             amount: total,
-            socketId
+            socketId,
+            userId: docRef.id,
+            accountReference: docRef.id
           });
 
           await updateDoc(orderDocRef, {
             payment: {
               provider: "mpesa",
               status: "requested",
-              socketId,
+              socketId: socketId || "",
               checkoutRequestId:
                 response?.CheckoutRequestID || response?.checkoutRequestId || "",
               merchantRequestId:
@@ -594,14 +596,14 @@ export default function CartDrawer() {
       newSocket.on("connect_error", (err) => {
         console.error("Socket connection error:", err);
         const message = err?.message || "Failed to connect to payment server.";
-        setStatus(message);
-        updateDoc(orderDocRef, {
-          status: "failed",
-          failureReason: message,
-          "payment.gatewayStatus": "failed",
-          "payment.updatedAt": serverTimestamp()
-        }).catch(() => { });
-        finalizeCheckout();
+        if (!stkRequestSentRef.current) {
+          setStatus(
+            `${message} Realtime updates are unavailable, but payment request is continuing.`
+          );
+          onConnect();
+          return;
+        }
+        setStatus("Realtime connection lost. Waiting for payment confirmation...");
       });
 
       newSocket.on("connect", () => {
@@ -674,9 +676,46 @@ export default function CartDrawer() {
       if (newSocket.connected) {
         onConnect();
       }
-    } catch {
-      setStatus("Checkout failed. Please check your connection.");
-      finalizeCheckout();
+    } catch (err) {
+      console.error("Socket setup failed. Falling back to direct STK request.", err);
+      setStatus("Realtime updates unavailable. Initiating M-Pesa STK Push...");
+      try {
+        const response = await initiateStkPush({
+          phoneNumber: deliveryPhone,
+          amount: total,
+          userId: docRef.id,
+          accountReference: docRef.id
+        });
+
+        await updateDoc(orderDocRef, {
+          payment: {
+            provider: "mpesa",
+            status: "requested",
+            socketId: "",
+            checkoutRequestId:
+              response?.CheckoutRequestID || response?.checkoutRequestId || "",
+            merchantRequestId:
+              response?.MerchantRequestID || response?.merchantRequestId || ""
+          }
+        });
+
+        stkRequestSentRef.current = true;
+        setStatus("Please check your phone and enter your M-Pesa PIN.");
+      } catch (stkErr) {
+        const message = stkErr?.message || "Failed to start payment.";
+        setStatus(`Failed to start payment: ${message}`);
+        try {
+          await updateDoc(orderDocRef, {
+            status: "failed",
+            failureReason: message,
+            "payment.gatewayStatus": "failed",
+            "payment.updatedAt": serverTimestamp()
+          });
+        } catch {
+          // ignore update failures
+        }
+        finalizeCheckout();
+      }
     }
   };
 
@@ -851,4 +890,3 @@ export default function CartDrawer() {
     </div>
   );
 }
-

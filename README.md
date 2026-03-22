@@ -9,10 +9,13 @@ A responsive ebook commerce store with Firebase-backed catalog management.
 3. Run the app: `npm run dev`
 
 Required payment env keys:
+- `VITE_XECO_SOCKET_URL` (or `VITE_API_BASE_URL` + `VITE_XECO_SOCKET_NAMESPACE`)
+- `VITE_STK_PROXY_URL` (recommended on Vercel, defaults to `/api/stkpush` in production)
+
+If you are not using the STK proxy, also set:
 - `VITE_XECO_API_KEY`
 - `VITE_XECO_BUSINESS_SHORTCODE`
 - `VITE_XECO_GATEWAY_URL` (or `VITE_API_BASE_URL`)
-- `VITE_XECO_SOCKET_URL` (or `VITE_API_BASE_URL` + `VITE_XECO_SOCKET_NAMESPACE`)
 - `VITE_XECO_CALLBACK_URL`
 
 ## Firebase data model
@@ -62,6 +65,19 @@ Setup:
    - `VITE_DOWNLOAD_PROXY_URL` = `https://<your-vercel-domain>/api/download` (no query string)
 3. Redeploy after adding env vars.
 4. Make sure your Vercel project uses Node 24 (this repo sets it in `package.json` and `vercel.json`).
+
+## Vercel STK Proxy (Recommended for live checkout)
+
+This repo includes `api/stkpush.js` to avoid browser CORS issues and keep API keys server-side.
+
+Set these env vars in Vercel:
+- `XECO_API_KEY`
+- `XECO_GATEWAY_URL` (or `XECO_API_BASE_URL`)
+- `XECO_BUSINESS_SHORTCODE`
+- `XECO_CALLBACK_URL` (for example `https://<your-domain>/api/webhook`)
+- `FIREBASE_CLIENT_EMAIL`
+- `FIREBASE_PRIVATE_KEY`
+- `VITE_STK_PROXY_URL` = `https://<your-domain>/api/stkpush` (or leave unset to use default `/api/stkpush` in production)
 
 Setup:
 1. Install Firebase CLI and initialize functions: `firebase init functions` (select JavaScript).

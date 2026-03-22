@@ -9,6 +9,11 @@ const API_KEY = (import.meta.env.VITE_XECO_API_KEY || "").trim();
 const SHORTCODE = (import.meta.env.VITE_XECO_BUSINESS_SHORTCODE || "").trim();
 const SOCKET_NAMESPACE = (import.meta.env.VITE_XECO_SOCKET_NAMESPACE || "/business").trim();
 const CALLBACK_URL = (import.meta.env.VITE_XECO_CALLBACK_URL || "").trim();
+const STK_PROXY_URL = (
+  import.meta.env.VITE_STK_PROXY_URL ||
+  (import.meta.env.PROD ? "/api/stkpush" : "")
+).trim();
+const USE_STK_PROXY = Boolean(STK_PROXY_URL);
 
 const MIN_STK_AMOUNT = 5;
 const MAX_ACCOUNT_REFERENCE_LENGTH = 12;
@@ -40,17 +45,23 @@ export const normalizePhoneForGateway = (value) => {
 const getMissingPaymentConfig = () => {
   const missing = [];
 
-  if (!API_KEY) {
-    missing.push("VITE_XECO_API_KEY");
-  }
-  if (!GATEWAY_URL) {
-    missing.push("VITE_XECO_GATEWAY_URL (or VITE_API_BASE_URL)");
-  }
-  if (!SHORTCODE) {
-    missing.push("VITE_XECO_BUSINESS_SHORTCODE");
-  }
-  if (!CALLBACK_URL) {
-    missing.push("VITE_XECO_CALLBACK_URL");
+  if (USE_STK_PROXY) {
+    if (!STK_PROXY_URL) {
+      missing.push("VITE_STK_PROXY_URL");
+    }
+  } else {
+    if (!API_KEY) {
+      missing.push("VITE_XECO_API_KEY");
+    }
+    if (!GATEWAY_URL) {
+      missing.push("VITE_XECO_GATEWAY_URL (or VITE_API_BASE_URL)");
+    }
+    if (!SHORTCODE) {
+      missing.push("VITE_XECO_BUSINESS_SHORTCODE");
+    }
+    if (!CALLBACK_URL) {
+      missing.push("VITE_XECO_CALLBACK_URL");
+    }
   }
 
   return missing;
@@ -88,6 +99,8 @@ const getErrorMessageFromResponse = async (response) => {
 };
 
 console.log("Payment Config Checked:", {
+  usingStkProxy: USE_STK_PROXY,
+  stkProxyUrl: STK_PROXY_URL,
   hasApiKey: !!API_KEY,
   shortcode: SHORTCODE,
   baseUrl: BASE_URL,
@@ -127,8 +140,8 @@ export const initiateStkPush = async (data) => {
     phoneNumber: phone,
     amount,
     userId: data.userId || phone,
-    businessShortcode: SHORTCODE,
-    callbackUrl: data.callbackUrl || CALLBACK_URL,
+    businessShortcode: data.businessShortcode || SHORTCODE || undefined,
+    callbackUrl: data.callbackUrl || CALLBACK_URL || undefined,
     description: data.description || "Book Store Purchase",
     accountReference: (data.accountReference || data.userId || "Order")
       .toString()
@@ -140,12 +153,18 @@ export const initiateStkPush = async (data) => {
 
   console.log("Initiating STK Push with payload:", payload);
 
-  const response = await fetch(`${GATEWAY_URL}/stkpush`, {
+  const requestUrl = USE_STK_PROXY ? STK_PROXY_URL : `${GATEWAY_URL}/stkpush`;
+  const headers = {
+    "Content-Type": "application/json",
+  };
+
+  if (!USE_STK_PROXY && API_KEY) {
+    headers["X-API-Key"] = API_KEY;
+  }
+
+  const response = await fetch(requestUrl, {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      ...(API_KEY ? { "X-API-Key": API_KEY } : {})
-    },
+    headers,
     body: JSON.stringify(payload),
   });
 
