@@ -1,6 +1,4 @@
 import crypto from "node:crypto";
-import { Readable } from "node:stream";
-import { pipeline } from "node:stream/promises";
 
 const ALLOWED_HOST = "res.cloudinary.com";
 
@@ -13,7 +11,7 @@ const sanitizeFilename = (value) => {
   const cleaned = (value || "")
     .toString()
     .replace(/[\r\n"]/g, "")
-    .replace(/[\\/<>:*?|]/g, "")
+    .replace(/[\\/\<\>:*?|]/g, "")
     .trim();
   return cleaned || "ebook";
 };
@@ -126,22 +124,23 @@ export default async function handler(req, res) {
     attemptedUrls.push(target.toString());
 
     let response = null;
-    let resolvedUrl = "";
     let lastStatus = 0;
+    let lastStatusText = "";
 
     for (const candidateUrl of attemptedUrls) {
       const upstream = await fetch(candidateUrl, { method: req.method });
       if (upstream.ok) {
         response = upstream;
-        resolvedUrl = candidateUrl;
         break;
       }
       lastStatus = upstream.status;
+      lastStatusText = upstream.statusText;
+      console.error(`Upstream ${upstream.status} for: ${candidateUrl}`);
     }
 
     if (!response) {
       res.statusCode = lastStatus || 502;
-      res.end(`Upstream error: ${lastStatus || "unknown"}`);
+      res.end(`Upstream error: ${lastStatus} ${lastStatusText}. Ensure CLOUDINARY_API_SECRET is set.`);
       return;
     }
 
@@ -155,10 +154,6 @@ export default async function handler(req, res) {
       `attachment; filename="${safeName}"`
     );
     res.setHeader("Cache-Control", "private, max-age=0, no-store");
-    res.setHeader(
-      "X-Download-Proxy-Source",
-      resolvedUrl === signedUrl ? "signed" : "unsigned"
-    );
     if (contentLength) {
       res.setHeader("Content-Length", contentLength);
     }
@@ -175,11 +170,12 @@ export default async function handler(req, res) {
       return;
     }
 
+    // Use arrayBuffer instead of streaming to avoid Readable.fromWeb compatibility issues
     res.statusCode = 200;
-    const nodeStream = Readable.fromWeb(response.body);
-    await pipeline(nodeStream, res);
+    const buffer = Buffer.from(await response.arrayBuffer());
+    res.end(buffer);
   } catch (err) {
-    console.error("Download proxy failed", err);
+    console.error("Download proxy failed:", err);
     res.statusCode = 500;
     res.end("Download failed.");
   }

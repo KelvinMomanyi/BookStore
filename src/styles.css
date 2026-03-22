@@ -901,6 +901,9 @@ main {
   font-weight: 600;
   text-decoration: none;
   transition: opacity 0.2s;
+  border: none;
+  cursor: pointer;
+  font-family: inherit;
 }
 
 .download-btn:hover {

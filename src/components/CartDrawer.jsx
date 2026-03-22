@@ -36,56 +36,6 @@ const getFileExtension = (url) => {
   return clean.slice(lastDot + 1).toLowerCase();
 };
 
-const buildDownloadUrl = (url, filename) => {
-  if (!url) return "";
-  if (!url.includes("cloudinary.com")) return url;
-
-  const proxyBase = getProxyBase();
-  if (proxyBase) {
-    const sourceUrl = stripAttachmentFlag(url);
-    return wrapDownloadProxy(sourceUrl, filename);
-  }
-
-  const parts = url.split("/upload/");
-  if (parts.length < 2) return url;
-
-  const encodedName = filename ? encodeURIComponent(filename) : "";
-  const flag = encodedName ? `fl_attachment:${encodedName}` : "fl_attachment";
-  const rest = parts.slice(1).join("/upload/");
-
-  if (rest.startsWith("fl_attachment")) {
-    const updated = rest.replace(/^fl_attachment[^/]*\//, `${flag}/`);
-    return wrapDownloadProxy(`${parts[0]}/upload/${updated}`, filename);
-  }
-
-  return wrapDownloadProxy(`${parts[0]}/upload/${flag}/${rest}`, filename);
-};
-
-const stripAttachmentFlag = (url) =>
-  url.replace(/\/upload\/fl_attachment[^/]*\//, "/upload/");
-
-const getProxyBase = () => {
-  if (import.meta.env.VITE_DOWNLOAD_PROXY_URL) {
-    return import.meta.env.VITE_DOWNLOAD_PROXY_URL;
-  }
-  return "";
-};
-
-const wrapDownloadProxy = (directUrl, filename) => {
-  const proxyBase = getProxyBase();
-  if (!proxyBase) return directUrl;
-  try {
-    const proxyUrl = new URL(proxyBase, window.location.origin);
-    proxyUrl.searchParams.set("url", directUrl);
-    if (filename) {
-      proxyUrl.searchParams.set("filename", filename);
-    }
-    return proxyUrl.toString();
-  } catch {
-    return directUrl;
-  }
-};
-
 const buildDownloadLabel = (url) => {
   const ext = getFileExtension(url);
   if (ext === "pdf") return "Download PDF";
@@ -97,6 +47,59 @@ const buildDownloadName = (url, title) => {
   const ext = getFileExtension(url);
   const safeTitle = (title || "ebook").replace(/\s+/g, "_");
   return ext ? `${safeTitle}.${ext}` : safeTitle;
+};
+
+const triggerDownload = async (url, filename) => {
+  const proxyBase = import.meta.env.VITE_DOWNLOAD_PROXY_URL ||
+    (import.meta.env.PROD ? "/api/download" : "");
+
+  // In production, use the server-side proxy which signs the Cloudinary URL
+  if (proxyBase) {
+    try {
+      const proxyUrl = new URL(proxyBase, window.location.origin);
+      proxyUrl.searchParams.set("url", url);
+      if (filename) proxyUrl.searchParams.set("filename", filename);
+
+      const response = await fetch(proxyUrl.toString());
+      if (!response.ok) {
+        const errorText = await response.text().catch(() => "");
+        throw new Error(`Proxy ${response.status}: ${errorText}`);
+      }
+      const blob = await response.blob();
+      const blobUrl = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = blobUrl;
+      a.download = filename || "ebook";
+      a.style.display = "none";
+      document.body.appendChild(a);
+      a.click();
+      setTimeout(() => {
+        document.body.removeChild(a);
+        URL.revokeObjectURL(blobUrl);
+      }, 200);
+      return;
+    } catch (err) {
+      console.error("Proxy download failed:", err);
+    }
+  }
+
+  // Fallback: try fl_attachment via iframe (works if files are public)
+  try {
+    const parts = url.split("/upload/");
+    if (parts.length >= 2) {
+      const rest = parts.slice(1).join("/upload/").replace(/^fl_attachment[^/]*\//, "");
+      const attachUrl = `${parts[0]}/upload/fl_attachment/${rest}`;
+      const iframe = document.createElement("iframe");
+      iframe.style.display = "none";
+      iframe.src = attachUrl;
+      document.body.appendChild(iframe);
+      setTimeout(() => document.body.removeChild(iframe), 10000);
+      return;
+    }
+  } catch { /* ignore */ }
+
+  // Last resort
+  window.open(url, "_blank");
 };
 
 export default function CartDrawer() {
@@ -859,16 +862,18 @@ export default function CartDrawer() {
                     >
                       <span>{item.title}</span>
                       {item.fileUrl ? (
-                        <a
-                          href={buildDownloadUrl(
-                            item.fileUrl,
-                            buildDownloadName(item.fileUrl, item.title)
-                          )}
-                          download={buildDownloadName(item.fileUrl, item.title)}
+                        <button
+                          type="button"
                           className="download-btn"
+                          onClick={() =>
+                            triggerDownload(
+                              item.fileUrl,
+                              buildDownloadName(item.fileUrl, item.title)
+                            )
+                          }
                         >
                           {buildDownloadLabel(item.fileUrl)}
-                        </a>
+                        </button>
                       ) : (
                         <span className="muted">Processing file...</span>
                       )}
