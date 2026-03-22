@@ -327,19 +327,19 @@ export default function CartDrawer() {
       const getGatewayEvent = (payload, eventName = "") =>
         normalizeGatewayValue(
           payload?.event ??
-            payload?.eventName ??
-            payload?.event_name ??
-            payload?.type ??
-            eventName
+          payload?.eventName ??
+          payload?.event_name ??
+          payload?.type ??
+          eventName
         );
 
       const getGatewayStatus = (payload, eventName = "") =>
         normalizeGatewayValue(
           payload?.status ??
-            payload?.gatewayStatus ??
-            payload?.paymentStatus ??
-            payload?.payment_status ??
-            getGatewayEvent(payload, eventName)
+          payload?.gatewayStatus ??
+          payload?.paymentStatus ??
+          payload?.payment_status ??
+          getGatewayEvent(payload, eventName)
         );
 
       const isGatewaySuccess = (payload, eventName = "") => {
@@ -600,7 +600,7 @@ export default function CartDrawer() {
           failureReason: message,
           "payment.gatewayStatus": "failed",
           "payment.updatedAt": serverTimestamp()
-        }).catch(() => {});
+        }).catch(() => { });
         finalizeCheckout();
       });
 
@@ -761,7 +761,7 @@ export default function CartDrawer() {
           >
             {placing ? "Processing..." : "Pay with M-Pesa"}
           </button>
-          
+
           {placing && orderId && (
             <button
               type="button"

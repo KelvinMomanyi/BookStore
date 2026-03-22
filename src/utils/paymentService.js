@@ -8,10 +8,7 @@ const GATEWAY_URL = (
 const API_KEY = (import.meta.env.VITE_XECO_API_KEY || "").trim();
 const SHORTCODE = (import.meta.env.VITE_XECO_BUSINESS_SHORTCODE || "").trim();
 const SOCKET_NAMESPACE = (import.meta.env.VITE_XECO_SOCKET_NAMESPACE || "/business").trim();
-const CALLBACK_URL = (
-  import.meta.env.VITE_XECO_CALLBACK_URL ||
-  `${window.location.origin}/api/webhook`
-).trim();
+const CALLBACK_URL = (import.meta.env.VITE_XECO_CALLBACK_URL || "").trim();
 
 const MIN_STK_AMOUNT = 5;
 const MAX_ACCOUNT_REFERENCE_LENGTH = 12;
@@ -182,6 +179,6 @@ export const setupSocket = () => {
     reconnectionAttempts: 5,
     timeout: 10000
   });
-  
+
   return socket;
 };
