@@ -1,4 +1,6 @@
 import crypto from "node:crypto";
+import { Readable } from "node:stream";
+import { pipeline } from "node:stream/promises";
 
 const ALLOWED_HOST = "res.cloudinary.com";
 
@@ -117,10 +119,29 @@ export default async function handler(req, res) {
   try {
     const apiSecret = process.env.CLOUDINARY_API_SECRET;
     const signedUrl = buildSignedCloudinaryUrl(target.toString(), apiSecret);
-    const response = await fetch(signedUrl);
-    if (!response.ok) {
-      res.statusCode = response.status;
-      res.end(`Upstream error: ${response.status}`);
+    const attemptedUrls = [];
+    if (signedUrl && signedUrl !== target.toString()) {
+      attemptedUrls.push(signedUrl);
+    }
+    attemptedUrls.push(target.toString());
+
+    let response = null;
+    let resolvedUrl = "";
+    let lastStatus = 0;
+
+    for (const candidateUrl of attemptedUrls) {
+      const upstream = await fetch(candidateUrl, { method: req.method });
+      if (upstream.ok) {
+        response = upstream;
+        resolvedUrl = candidateUrl;
+        break;
+      }
+      lastStatus = upstream.status;
+    }
+
+    if (!response) {
+      res.statusCode = lastStatus || 502;
+      res.end(`Upstream error: ${lastStatus || "unknown"}`);
       return;
     }
 
@@ -134,6 +155,10 @@ export default async function handler(req, res) {
       `attachment; filename="${safeName}"`
     );
     res.setHeader("Cache-Control", "private, max-age=0, no-store");
+    res.setHeader(
+      "X-Download-Proxy-Source",
+      resolvedUrl === signedUrl ? "signed" : "unsigned"
+    );
     if (contentLength) {
       res.setHeader("Content-Length", contentLength);
     }
@@ -144,9 +169,15 @@ export default async function handler(req, res) {
       return;
     }
 
-    const arrayBuffer = await response.arrayBuffer();
+    if (!response.body) {
+      res.statusCode = 502;
+      res.end("Empty upstream response.");
+      return;
+    }
+
     res.statusCode = 200;
-    res.end(Buffer.from(arrayBuffer));
+    const nodeStream = Readable.fromWeb(response.body);
+    await pipeline(nodeStream, res);
   } catch (err) {
     console.error("Download proxy failed", err);
     res.statusCode = 500;

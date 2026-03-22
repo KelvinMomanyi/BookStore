@@ -68,7 +68,7 @@ const getProxyBase = () => {
   if (import.meta.env.VITE_DOWNLOAD_PROXY_URL) {
     return import.meta.env.VITE_DOWNLOAD_PROXY_URL;
   }
-  return import.meta.env.PROD ? "/api/download" : "";
+  return "";
 };
 
 const wrapDownloadProxy = (directUrl, filename) => {
@@ -865,8 +865,6 @@ export default function CartDrawer() {
                             buildDownloadName(item.fileUrl, item.title)
                           )}
                           download={buildDownloadName(item.fileUrl, item.title)}
-                          target="_blank"
-                          rel="noreferrer"
                           className="download-btn"
                         >
                           {buildDownloadLabel(item.fileUrl)}
