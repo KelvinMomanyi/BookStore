@@ -16,54 +16,96 @@ const sanitizeFilename = (value) => {
   return cleaned || "ebook";
 };
 
-const toBase64Url = (value) =>
-  value.replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
-
-const buildSignedCloudinaryUrl = (inputUrl, apiSecret) => {
-  if (!apiSecret) return inputUrl;
-
-  const url = new URL(inputUrl);
+/**
+ * Extract the public_id, resource_type, and format from a Cloudinary CDN URL.
+ *  e.g. https://res.cloudinary.com/dsmz1lxlk/image/upload/v1773392051/km6efxrgnyzoqqn5eujd.pdf
+ *       → { resourceType: "image", publicId: "km6efxrgnyzoqqn5eujd", format: "pdf" }
+ */
+const parseCloudinaryUrl = (urlString) => {
+  const url = new URL(urlString);
   const segments = url.pathname.split("/").filter(Boolean);
+  // segments: [cloudName, resourceType, deliveryType, ...rest]
+  // rest may include version (v12345), transformations, and finally public_id.ext
 
+  const cloudName = process.env.CLOUDINARY_CLOUD_NAME || segments[0];
+  const cloudIndex = segments.indexOf(cloudName);
+  if (cloudIndex === -1) return null;
+
+  const resourceType = segments[cloudIndex + 1]; // "image", "video", "raw"
+  if (!resourceType) return null;
+
+  // Everything after deliveryType (upload/authenticated/private)
+  const afterType = segments.slice(cloudIndex + 3);
+  if (afterType.length === 0) return null;
+
+  // The last segment is the public_id (possibly with extension)
+  const lastSegment = afterType[afterType.length - 1];
+  const dotIndex = lastSegment.lastIndexOf(".");
+  let publicId, format;
+  if (dotIndex > 0) {
+    publicId = lastSegment.slice(0, dotIndex);
+    format = lastSegment.slice(dotIndex + 1);
+  } else {
+    publicId = lastSegment;
+    format = "";
+  }
+
+  // If there are folder segments or version segments before the public_id,
+  // include folder path in public_id (skip version segments like v12345)
+  const prefixParts = afterType.slice(0, -1).filter(
+    (s) => !s.startsWith("v") || !/^v\d+$/.test(s)
+  );
+  if (prefixParts.length > 0) {
+    publicId = [...prefixParts, publicId].join("/");
+  }
+
+  return { resourceType, publicId, format };
+};
+
+/**
+ * Build a Cloudinary download URL using the Download API.
+ * This works for all access modes (public, authenticated, private).
+ * URL format: https://api.cloudinary.com/v1_1/{cloud}/image/download
+ *   ?public_id={id}&format={fmt}&api_key={key}&timestamp={ts}&signature={sig}
+ */
+const buildCloudinaryDownloadUrl = (publicId, format, resourceType) => {
   const cloudName = process.env.CLOUDINARY_CLOUD_NAME;
-  if (cloudName) {
-    const cloudIndex = segments.indexOf(cloudName);
-    if (cloudIndex === -1 || segments[cloudIndex + 2] == null) {
-      return inputUrl;
-    }
+  const apiKey = process.env.CLOUDINARY_API_KEY;
+  const apiSecret = process.env.CLOUDINARY_API_SECRET;
+
+  if (!cloudName || !apiKey || !apiSecret) {
+    console.error("Missing Cloudinary credentials:", {
+      hasCloudName: !!cloudName,
+      hasApiKey: !!apiKey,
+      hasApiSecret: !!apiSecret
+    });
+    return null;
   }
 
-  const cloudIndex = segments.indexOf(cloudName || segments[0]);
-  const resourceType = segments[cloudIndex + 1];
-  const deliveryType = segments[cloudIndex + 2];
-  const rest = segments.slice(cloudIndex + 3);
-  if (!resourceType || !deliveryType || rest.length === 0) {
-    return inputUrl;
-  }
+  const timestamp = Math.floor(Date.now() / 1000);
 
-  const cleanedRest =
-    rest[0].startsWith("s--") && rest[0].endsWith("--")
-      ? rest.slice(1)
-      : rest;
-  if (cleanedRest.length === 0) {
-    return inputUrl;
-  }
+  // Build the string to sign (parameters in alphabetical order)
+  const params = { public_id: publicId, timestamp: String(timestamp) };
+  if (format) params.format = format;
 
-  const toSign = cleanedRest.join("/");
-  const signatureHash = crypto
+  const sortedKeys = Object.keys(params).sort();
+  const toSign = sortedKeys.map((k) => `${k}=${params[k]}`).join("&");
+
+  const signature = crypto
     .createHash("sha1")
-    .update(`${toSign}${apiSecret}`)
-    .digest("base64");
-  const signature = toBase64Url(signatureHash).slice(0, 8);
+    .update(toSign + apiSecret)
+    .digest("hex");
 
-  const signedPath = [
-    ...segments.slice(0, cloudIndex + 3),
-    `s--${signature}--`,
-    ...cleanedRest
-  ].join("/");
+  const downloadUrl = new URL(
+    `https://api.cloudinary.com/v1_1/${cloudName}/${resourceType || "image"}/download`
+  );
+  downloadUrl.searchParams.set("public_id", publicId);
+  if (format) downloadUrl.searchParams.set("format", format);
+  downloadUrl.searchParams.set("api_key", apiKey);
+  downloadUrl.searchParams.set("timestamp", String(timestamp));
+  downloadUrl.searchParams.set("signature", signature);
 
-  url.pathname = `/${signedPath}`;
-  return url.toString();
+  return downloadUrl.toString();
 };
 
 export default async function handler(req, res) {
@@ -115,32 +157,52 @@ export default async function handler(req, res) {
   const safeName = sanitizeFilename(filenameParam || fallbackName);
 
   try {
-    const apiSecret = process.env.CLOUDINARY_API_SECRET;
-    const signedUrl = buildSignedCloudinaryUrl(target.toString(), apiSecret);
-    const attemptedUrls = [];
-    if (signedUrl && signedUrl !== target.toString()) {
-      attemptedUrls.push(signedUrl);
-    }
-    attemptedUrls.push(target.toString());
-
+    // Strategy 1: Use Cloudinary Download API (works for all access modes)
+    const parsed = parseCloudinaryUrl(target.toString());
     let response = null;
-    let lastStatus = 0;
-    let lastStatusText = "";
+    let sourceLabel = "";
 
-    for (const candidateUrl of attemptedUrls) {
-      const upstream = await fetch(candidateUrl, { method: req.method });
-      if (upstream.ok) {
-        response = upstream;
-        break;
+    if (parsed) {
+      const downloadApiUrl = buildCloudinaryDownloadUrl(
+        parsed.publicId,
+        parsed.format,
+        parsed.resourceType
+      );
+
+      if (downloadApiUrl) {
+        console.log("Trying Cloudinary Download API for:", parsed.publicId);
+        const apiResponse = await fetch(downloadApiUrl, { method: req.method });
+        if (apiResponse.ok) {
+          response = apiResponse;
+          sourceLabel = "download-api";
+          console.log("Download API succeeded for:", parsed.publicId);
+        } else {
+          console.error(
+            `Download API ${apiResponse.status} for: ${parsed.publicId}`,
+            await apiResponse.text().catch(() => "")
+          );
+        }
       }
-      lastStatus = upstream.status;
-      lastStatusText = upstream.statusText;
-      console.error(`Upstream ${upstream.status} for: ${candidateUrl}`);
+    }
+
+    // Strategy 2: Try direct CDN URL as fallback
+    if (!response) {
+      console.log("Trying direct CDN URL:", target.toString());
+      const directResponse = await fetch(target.toString(), { method: req.method });
+      if (directResponse.ok) {
+        response = directResponse;
+        sourceLabel = "direct";
+      } else {
+        console.error(`Direct CDN ${directResponse.status}: ${target.toString()}`);
+      }
     }
 
     if (!response) {
-      res.statusCode = lastStatus || 502;
-      res.end(`Upstream error: ${lastStatus} ${lastStatusText}. Ensure CLOUDINARY_API_SECRET is set.`);
+      res.statusCode = 502;
+      res.end(
+        "Could not fetch file from Cloudinary. " +
+        "Ensure CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, and CLOUDINARY_API_SECRET are set correctly."
+      );
       return;
     }
 
@@ -154,6 +216,7 @@ export default async function handler(req, res) {
       `attachment; filename="${safeName}"`
     );
     res.setHeader("Cache-Control", "private, max-age=0, no-store");
+    res.setHeader("X-Download-Source", sourceLabel);
     if (contentLength) {
       res.setHeader("Content-Length", contentLength);
     }
@@ -170,7 +233,6 @@ export default async function handler(req, res) {
       return;
     }
 
-    // Use arrayBuffer instead of streaming to avoid Readable.fromWeb compatibility issues
     res.statusCode = 200;
     const buffer = Buffer.from(await response.arrayBuffer());
     res.end(buffer);
