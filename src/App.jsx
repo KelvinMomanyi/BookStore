@@ -2,6 +2,7 @@ import { Routes, Route } from "react-router-dom";
 import Navbar from "./components/Navbar.jsx";
 import Footer from "./components/Footer.jsx";
 import CartDrawer from "./components/CartDrawer.jsx";
+import WhatsAppFloat from "./components/WhatsAppFloat.jsx";
 import Home from "./pages/Home.jsx";
 import Store from "./pages/Store.jsx";
 import BookDetails from "./pages/BookDetails.jsx";
@@ -24,6 +25,7 @@ export default function App() {
         </Routes>
       </main>
       <Footer />
+      <WhatsAppFloat />
       <CartDrawer />
     </div>
   );
