@@ -157,50 +157,92 @@ export default async function handler(req, res) {
   const safeName = sanitizeFilename(filenameParam || fallbackName);
 
   try {
-    // Strategy 1: Use Cloudinary Download API (works for all access modes)
     const parsed = parseCloudinaryUrl(target.toString());
     let response = null;
     let sourceLabel = "";
     const errors = [];
 
+    // Helper to try a fetch and record result
+    async function tryFetch(url, method, label) {
+      if (!url) return false;
+      console.log(`Trying ${label} for:`, url.split("?")[0]);
+      try {
+        const res = await fetch(url, { method });
+        if (res.ok) {
+          response = res;
+          sourceLabel = label;
+          console.log(`${label} succeeded.`);
+          return true;
+        } else {
+          const text = await res.text().catch(() => "");
+          errors.push(`${label} failed with ${res.status}: ${text}`);
+          console.error(`${label} ${res.status}:`, text);
+          return false;
+        }
+      } catch (e) {
+        errors.push(`${label} network error: ${e.message}`);
+        return false;
+      }
+    }
+
     if (parsed) {
-      const downloadApiUrl = buildCloudinaryDownloadUrl(
+      // Strategy 1: Download API (stripped extension)
+      const downloadApiUrl1 = buildCloudinaryDownloadUrl(
         parsed.publicId,
         parsed.format,
         parsed.resourceType
       );
-
-      if (downloadApiUrl) {
-        console.log("Trying Cloudinary Download API for:", parsed.publicId);
-        const apiResponse = await fetch(downloadApiUrl, { method: req.method });
-        if (apiResponse.ok) {
-          response = apiResponse;
-          sourceLabel = "download-api";
-          console.log("Download API succeeded for:", parsed.publicId);
-        } else {
-          const text = await apiResponse.text().catch(() => "");
-          errors.push(`Strategy 1 (Download API) failed with ${apiResponse.status}: ${text}`);
-          console.error(`Download API ${apiResponse.status} for: ${parsed.publicId}`, text);
+      if (downloadApiUrl1) {
+        if (await tryFetch(downloadApiUrl1, req.method, "download-api-stripped")) {
+          // Success
         }
       } else {
-        errors.push("Strategy 1 failed: missing CLOUDINARY_ credentials.");
+        errors.push("Missing CLOUDINARY_ credentials for API.");
+      }
+
+      // Strategy 2: Download API (unstripped extension)
+      // Some files uploaded as raw or with use_filename have the extension inside the public_id
+      if (!response && parsed.format) {
+        const fullPublicId = `${parsed.publicId}.${parsed.format}`;
+        const downloadApiUrl2 = buildCloudinaryDownloadUrl(
+            fullPublicId,
+            "", // no format appended
+            parsed.resourceType
+        );
+        if (downloadApiUrl2) {
+          await tryFetch(downloadApiUrl2, req.method, "download-api-full");
+        }
+      }
+
+      // Strategy 3: Signed Delivery URL
+      // Build a signature for `s--<sig>--` 
+      if (!response && process.env.CLOUDINARY_API_SECRET) {
+        try {
+          const afterTypeIdx = target.pathname.indexOf("/upload/") + 8;
+          if (afterTypeIdx > 7) {
+             const pathAfterType = target.pathname.substring(afterTypeIdx);
+             // Remove version (e.g., v1773392051/) from the string to sign
+             const stringToSign = pathAfterType.replace(/^v\d+\//, "");
+             const sigHash = crypto.createHash("sha1")
+                 .update(stringToSign + process.env.CLOUDINARY_API_SECRET)
+                 .digest("base64");
+             const sig = sigHash.replace(/\+/g, "-").replace(/\//g, "_").substring(0, 8);
+             
+             // insert `s--<sig>--/` between `/upload/` and the rest
+             const signedUrl = target.toString().replace("/upload/", `/upload/s--${sig}--/`);
+             await tryFetch(signedUrl, req.method, "signed-delivery-url");
+          }
+        } catch (e) {
+          errors.push(`Signed delivery generation failed: ${e.message}`);
+        }
       }
     } else {
-      errors.push("Strategy 1 failed: could not parse Cloudinary URL.");
+      errors.push("Could not parse Cloudinary URL.");
     }
 
-    // Strategy 2: Try direct CDN URL as fallback
+    // Strategy 4: Try direct CDN URL as final fallback
     if (!response) {
-      console.log("Trying direct CDN URL:", target.toString());
-      const directResponse = await fetch(target.toString(), { method: req.method });
-      if (directResponse.ok) {
-        response = directResponse;
-        sourceLabel = "direct";
-      } else {
-        const text = await directResponse.text().catch(() => "");
-        errors.push(`Strategy 2 (Direct CDN) failed with ${directResponse.status}: ${text}`);
-        console.error(`Direct CDN ${directResponse.status}: ${target.toString()}`);
-      }
+      await tryFetch(target.toString(), req.method, "direct-cdn");
     }
 
     if (!response) {
