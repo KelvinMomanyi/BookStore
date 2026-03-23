@@ -589,6 +589,23 @@ main {
   width: 100%;
 }
 
+.checkout-empty {
+  display: grid;
+  gap: 12px;
+  justify-items: start;
+}
+
+.checkout-layout {
+  margin-top: 20px;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  overflow: hidden;
+}
+
+.checkout-layout .cart-body {
+  max-height: none;
+}
+
 .order-hint {
   display: grid;
   gap: 8px;

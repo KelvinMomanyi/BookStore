@@ -9,6 +9,7 @@ import BookDetails from "./pages/BookDetails.jsx";
 import Admin from "./pages/Admin.jsx";
 import Library from "./pages/Library.jsx";
 import About from "./pages/About.jsx";
+import Checkout from "./pages/Checkout.jsx";
 import NotFound from "./pages/NotFound.jsx";
 
 export default function App() {
@@ -22,6 +23,7 @@ export default function App() {
           <Route path="/store" element={<Store />} />
           <Route path="/book/:id" element={<BookDetails />} />
           <Route path="/library" element={<Library />} />
+          <Route path="/checkout" element={<Checkout />} />
           <Route path="/admin" element={<Admin />} />
           <Route path="*" element={<NotFound />} />
         </Routes>

@@ -62,6 +62,11 @@ export default async function handler(req, res) {
   const apiKey =
     normalize(process.env.XECO_API_KEY) ||
     normalize(process.env.VITE_XECO_API_KEY);
+  const serviceType =
+    normalize(process.env.XECO_SERVICE_TYPE) ||
+    normalize(process.env.XECO_PAYMENT_SERVICE_TYPE) ||
+    normalize(process.env.VITE_XECO_SERVICE_TYPE) ||
+    "payment";
   const fallbackShortcode =
     normalize(process.env.XECO_BUSINESS_SHORTCODE) ||
     normalize(process.env.VITE_XECO_BUSINESS_SHORTCODE);
@@ -108,7 +113,8 @@ export default async function handler(req, res) {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "X-API-Key": apiKey
+        "x-api-key": apiKey,
+        "x-service-type": serviceType
       },
       body: JSON.stringify(payload)
     });

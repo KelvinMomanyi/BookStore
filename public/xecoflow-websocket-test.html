@@ -220,7 +220,8 @@
         );
 
         socket = io(socketUrl, {
-          auth: { apiKey },
+          auth: { apiKey, serviceType: "payment" },
+          query: { serviceType: "payment" },
           transports: ["websocket", "polling"],
           reconnection: true,
           reconnectionAttempts: 5,

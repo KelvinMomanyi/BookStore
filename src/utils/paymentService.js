@@ -6,6 +6,9 @@ const GATEWAY_URL = (
   (BASE_URL ? `${BASE_URL}/api/v1/gateway` : "")
 ).trim();
 const API_KEY = (import.meta.env.VITE_XECO_API_KEY || "").trim();
+const SERVICE_TYPE = (
+  import.meta.env.VITE_XECO_SERVICE_TYPE || "payment"
+).trim().toLowerCase();
 const SHORTCODE = (import.meta.env.VITE_XECO_BUSINESS_SHORTCODE || "").trim();
 const SOCKET_NAMESPACE = (import.meta.env.VITE_XECO_SOCKET_NAMESPACE || "/business").trim();
 const CALLBACK_URL = (import.meta.env.VITE_XECO_CALLBACK_URL || "").trim();
@@ -122,6 +125,7 @@ console.log("Payment Config Checked:", {
   usingStkProxy: USE_STK_PROXY,
   stkProxyUrl: STK_PROXY_URL,
   hasApiKey: !!API_KEY,
+  serviceType: SERVICE_TYPE || "payment",
   shortcode: SHORTCODE,
   baseUrl: BASE_URL,
   gatewayUrl: GATEWAY_URL,
@@ -181,10 +185,11 @@ export const initiateStkPush = async (data) => {
   const requestUrl = USE_STK_PROXY ? STK_PROXY_URL : `${GATEWAY_URL}/stkpush`;
   const headers = {
     "Content-Type": "application/json",
+    "x-service-type": SERVICE_TYPE || "payment"
   };
 
   if (!USE_STK_PROXY && API_KEY) {
-    headers["X-API-Key"] = API_KEY;
+    headers["x-api-key"] = API_KEY;
   }
 
   const response = await fetch(requestUrl, {
@@ -218,7 +223,10 @@ export const setupSocket = () => {
   const socketUrl = ensureSocketNamespace(SOCKET_URL);
   console.log("Setting up socket to:", socketUrl);
   const socket = io(socketUrl, {
-    auth: API_KEY ? { apiKey: API_KEY } : undefined,
+    auth: API_KEY
+      ? { apiKey: API_KEY, serviceType: SERVICE_TYPE || "payment" }
+      : undefined,
+    query: { serviceType: SERVICE_TYPE || "payment" },
     transports: ["websocket", "polling"],
     reconnection: true,
     reconnectionAttempts: 5,
