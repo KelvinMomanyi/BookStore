@@ -1078,7 +1078,7 @@ main {
 
 @media (max-width: 420px) {
   .book-grid {
-    grid-template-columns: 1fr;
+    grid-template-columns: 1fr 1fr;
   }
 
   .hero-stats {

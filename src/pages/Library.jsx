@@ -8,7 +8,13 @@ import {
   query,
   where
 } from "firebase/firestore";
-import { db } from "../firebase.js";
+import {
+  GoogleAuthProvider,
+  onAuthStateChanged,
+  signInWithPopup,
+  signOut
+} from "firebase/auth";
+import { db, auth } from "../firebase.js";
 import SectionTitle from "../components/SectionTitle.jsx";
 import { formatCurrency } from "../utils/format.js";
 import { isFailedStatus, isPaidStatus, normalizeStatus } from "../utils/orderStatus.js";
@@ -125,6 +131,7 @@ const triggerDownload = async (url, filename) => {
 };
 
 export default function Library() {
+  const [user, setUser] = useState(null);
   const [orderId, setOrderId] = useState("");
   const [transactionCode, setTransactionCode] = useState("");
   const [order, setOrder] = useState(null);
@@ -134,11 +141,34 @@ export default function Library() {
   const storedOrders = useMemo(loadStoredOrders, []);
 
   useEffect(() => {
+    const unsub = onAuthStateChanged(auth, (currentUser) => {
+      setUser(currentUser || null);
+    });
+    return () => unsub();
+  }, []);
+
+  useEffect(() => {
     if (storedOrders.length > 0) {
       const first = storedOrders[0];
       setOrderId(typeof first === "string" ? first : first.id || "");
     }
   }, [storedOrders]);
+
+  const handleGoogleLogin = async () => {
+    setStatus("");
+    try {
+      const provider = new GoogleAuthProvider();
+      provider.setCustomParameters({ prompt: "select_account" });
+      await signInWithPopup(auth, provider);
+    } catch (err) {
+      console.error("Auth error:", err);
+      setStatus(`Google sign-in failed: ${err.code || err.message}`);
+    }
+  };
+
+  const handleLogout = async () => {
+    await signOut(auth);
+  };
 
   const applyOrderResult = (snap, source = "order-id") => {
     const data = snap.data();
@@ -243,7 +273,28 @@ export default function Library() {
           title="Your Library"
           subtitle="Access purchased ebooks with your order ID or M-Pesa transaction code."
         />
-        <form className="library-form" onSubmit={handleLookup}>
+        
+        {!user ? (
+          <div className="auth-form" style={{ textAlign: "center", padding: "2rem 0" }}>
+            <h3 style={{ marginBottom: "1rem" }}>Sign in to access your library</h3>
+            <p className="muted" style={{ marginBottom: "2rem", maxWidth: "400px", margin: "0 auto 2rem" }}>
+              Please sign in with Google to view and download your purchased ebooks.
+            </p>
+            <button type="button" className="primary google" onClick={handleGoogleLogin}>
+              Sign in with Google
+            </button>
+            {status && <p className="status" style={{ marginTop: "1rem" }}>{status}</p>}
+          </div>
+        ) : (
+          <>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "2rem", padding: "1rem", background: "var(--bg-alt)", borderRadius: "var(--radius-md)" }}>
+              <p style={{ margin: 0 }}>Signed in as <strong>{user.email}</strong></p>
+              <button type="button" className="ghost" onClick={handleLogout} style={{ padding: "6px 14px", fontSize: "0.85rem" }}>
+                Sign out
+              </button>
+            </div>
+            
+            <form className="library-form" onSubmit={handleLookup}>
           <div>
             <label>Order ID</label>
             <input
@@ -327,6 +378,8 @@ export default function Library() {
               ))}
             </div>
           </div>
+        )}
+        </>
         )}
       </section>
     </div>
