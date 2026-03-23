@@ -161,6 +161,7 @@ export default async function handler(req, res) {
     const parsed = parseCloudinaryUrl(target.toString());
     let response = null;
     let sourceLabel = "";
+    const errors = [];
 
     if (parsed) {
       const downloadApiUrl = buildCloudinaryDownloadUrl(
@@ -177,12 +178,15 @@ export default async function handler(req, res) {
           sourceLabel = "download-api";
           console.log("Download API succeeded for:", parsed.publicId);
         } else {
-          console.error(
-            `Download API ${apiResponse.status} for: ${parsed.publicId}`,
-            await apiResponse.text().catch(() => "")
-          );
+          const text = await apiResponse.text().catch(() => "");
+          errors.push(`Strategy 1 (Download API) failed with ${apiResponse.status}: ${text}`);
+          console.error(`Download API ${apiResponse.status} for: ${parsed.publicId}`, text);
         }
+      } else {
+        errors.push("Strategy 1 failed: missing CLOUDINARY_ credentials.");
       }
+    } else {
+      errors.push("Strategy 1 failed: could not parse Cloudinary URL.");
     }
 
     // Strategy 2: Try direct CDN URL as fallback
@@ -193,16 +197,19 @@ export default async function handler(req, res) {
         response = directResponse;
         sourceLabel = "direct";
       } else {
+        const text = await directResponse.text().catch(() => "");
+        errors.push(`Strategy 2 (Direct CDN) failed with ${directResponse.status}: ${text}`);
         console.error(`Direct CDN ${directResponse.status}: ${target.toString()}`);
       }
     }
 
     if (!response) {
       res.statusCode = 502;
-      res.end(
-        "Could not fetch file from Cloudinary. " +
-        "Ensure CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, and CLOUDINARY_API_SECRET are set correctly."
-      );
+      res.setHeader("Content-Type", "application/json");
+      res.end(JSON.stringify({
+        error: "Could not fetch file from Cloudinary.",
+        details: errors
+      }));
       return;
     }
 
@@ -229,7 +236,7 @@ export default async function handler(req, res) {
 
     if (!response.body) {
       res.statusCode = 502;
-      res.end("Empty upstream response.");
+      res.end(JSON.stringify({ error: "Empty upstream response." }));
       return;
     }
 
@@ -239,6 +246,6 @@ export default async function handler(req, res) {
   } catch (err) {
     console.error("Download proxy failed:", err);
     res.statusCode = 500;
-    res.end("Download failed.");
+    res.end(JSON.stringify({ error: err.message }));
   }
 }
