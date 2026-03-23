@@ -236,11 +236,35 @@ export default async function handler(req, res) {
           errors.push(`Signed delivery generation failed: ${e.message}`);
         }
       }
+      
+      // Strategy 4: Try treating it as a 'raw' resource type instead of 'image'
+      // Often PDFs are uploaded as 'raw' but the frontend saves them as 'image/upload/'
+      if (!response && parsed.resourceType === "image" && target.toString().includes("/image/upload/")) {
+        const rawUrl = target.toString().replace("/image/upload/", "/raw/upload/");
+        await tryFetch(rawUrl, req.method, "raw-cdn-url");
+
+        if (!response) {
+            // Also try signing the raw URL
+            try {
+              const afterTypeIdx = rawUrl.indexOf("/upload/") + 8;
+              const pathAfterType = new URL(rawUrl).pathname.substring(afterTypeIdx);
+              const stringToSign = pathAfterType.replace(/^v\d+\//, "");
+              const sigHash = crypto.createHash("sha1")
+                  .update(stringToSign + process.env.CLOUDINARY_API_SECRET)
+                  .digest("base64");
+              const sig = sigHash.replace(/\+/g, "-").replace(/\//g, "_").substring(0, 8);
+              const signedRawUrl = rawUrl.replace("/upload/", `/upload/s--${sig}--/`);
+              await tryFetch(signedRawUrl, req.method, "signed-raw-delivery-url");
+            } catch (e) {
+              errors.push(`Signed raw delivery generation failed: ${e.message}`);
+            }
+        }
+      }
     } else {
       errors.push("Could not parse Cloudinary URL.");
     }
 
-    // Strategy 4: Try direct CDN URL as final fallback
+    // Strategy 5: Try direct CDN URL as final fallback
     if (!response) {
       await tryFetch(target.toString(), req.method, "direct-cdn");
     }
