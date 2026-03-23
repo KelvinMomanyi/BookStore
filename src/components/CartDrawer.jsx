@@ -277,7 +277,6 @@ export default function CartDrawer() {
 
     let docRef;
     try {
-      setStatus("Creating your order...");
       docRef = await addDoc(collection(db, "orders"), {
         phoneNumber: deliveryPhone,
         items: orderItems,
@@ -303,8 +302,6 @@ export default function CartDrawer() {
     storeOrder({ id: docRef.id });
 
     const orderDocRef = doc(db, "orders", docRef.id);
-
-    setStatus("Connecting to payment system...");
 
     try {
       const newSocket = setupSocket();
@@ -556,7 +553,6 @@ export default function CartDrawer() {
         if (stkRequestSentRef.current) return;
         stkRequestSentRef.current = true;
         const socketId = newSocket.id;
-        setStatus("Initiating M-Pesa STK Push...");
 
         try {
           const response = await initiateStkPush({
@@ -668,7 +664,6 @@ export default function CartDrawer() {
 
       timeoutRef.current = setTimeout(() => {
         if (
-          newSocket.connected &&
           paymentPendingRef.current &&
           !paymentSettledRef.current
         ) {
@@ -676,12 +671,9 @@ export default function CartDrawer() {
         }
       }, 90000);
 
-      if (newSocket.connected) {
-        onConnect();
-      }
+      onConnect();
     } catch (err) {
       console.error("Socket setup failed. Falling back to direct STK request.", err);
-      setStatus("Realtime updates unavailable. Initiating M-Pesa STK Push...");
       try {
         const response = await initiateStkPush({
           phoneNumber: deliveryPhone,

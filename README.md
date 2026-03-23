@@ -11,6 +11,7 @@ A responsive ebook commerce store with Firebase-backed catalog management.
 Required payment env keys:
 - `VITE_XECO_SOCKET_URL` (or `VITE_API_BASE_URL` + `VITE_XECO_SOCKET_NAMESPACE`)
 - `VITE_STK_PROXY_URL` (recommended on Vercel, defaults to `/api/stkpush` in production)
+- `VITE_AUTHOR_WHATSAPP_NUMBER` (author support WhatsApp number for footer chat icon)
 
 If you are not using the STK proxy, also set:
 - `VITE_XECO_API_KEY`
