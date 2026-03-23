@@ -8,6 +8,7 @@ import Store from "./pages/Store.jsx";
 import BookDetails from "./pages/BookDetails.jsx";
 import Admin from "./pages/Admin.jsx";
 import Library from "./pages/Library.jsx";
+import About from "./pages/About.jsx";
 import NotFound from "./pages/NotFound.jsx";
 
 export default function App() {
@@ -17,6 +18,7 @@ export default function App() {
       <main>
         <Routes>
           <Route path="/" element={<Home />} />
+          <Route path="/about" element={<About />} />
           <Route path="/store" element={<Store />} />
           <Route path="/book/:id" element={<BookDetails />} />
           <Route path="/library" element={<Library />} />

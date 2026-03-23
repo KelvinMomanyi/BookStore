@@ -1,11 +1,27 @@
 import { NavLink, Link } from "react-router-dom";
 import { useCart } from "../state/CartContext.jsx";
+import { useState, useEffect } from "react";
+import { auth } from "../firebase.js";
+import { onAuthStateChanged } from "firebase/auth";
 
 const navLinkClass = ({ isActive }) =>
   isActive ? "nav-link active" : "nav-link";
 
 export default function Navbar() {
   const { summary, toggleCart } = useCart();
+  const [isAdmin, setIsAdmin] = useState(false);
+
+  useEffect(() => {
+    const unsub = onAuthStateChanged(auth, (user) => {
+      const adminEmail = import.meta.env.VITE_ADMIN_EMAIL;
+      if (user && user.email === adminEmail) {
+        setIsAdmin(true);
+      } else {
+        setIsAdmin(false);
+      }
+    });
+    return () => unsub();
+  }, []);
 
   return (
     <header className="nav-shell">
@@ -72,27 +88,41 @@ export default function Navbar() {
             </span>
             <span className="nav-text">Library</span>
           </NavLink>
-          <NavLink to="/admin" className={navLinkClass}>
-            <span className="nav-icon" aria-hidden="true">
-              <svg viewBox="0 0 24 24" role="img" focusable="false">
-                <path
-                  d="M12 4l7 3v5c0 4-3 7-7 8-4-1-7-4-7-8V7z"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="1.6"
-                  strokeLinejoin="round"
-                />
-                <path
-                  d="M9.5 12.5l1.7 1.7 3.5-3.6"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="1.6"
-                  strokeLinecap="round"
-                />
-              </svg>
-            </span>
-            <span className="nav-text">Admin</span>
-          </NavLink>
+
+          {isAdmin ? (
+            <NavLink to="/admin" className={navLinkClass}>
+              <span className="nav-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" role="img" focusable="false">
+                  <path
+                    d="M12 4l7 3v5c0 4-3 7-7 8-4-1-7-4-7-8V7z"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="1.6"
+                    strokeLinejoin="round"
+                  />
+                  <path
+                    d="M9.5 12.5l1.7 1.7 3.5-3.6"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="1.6"
+                    strokeLinecap="round"
+                  />
+                </svg>
+              </span>
+              <span className="nav-text">Admin</span>
+            </NavLink>
+          ) : (
+            <NavLink to="/about" className={navLinkClass}>
+              <span className="nav-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" role="img" focusable="false" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round">
+                  <circle cx="12" cy="12" r="10"></circle>
+                  <path d="M12 16v-4"></path>
+                  <path d="M12 8h.01"></path>
+                </svg>
+              </span>
+              <span className="nav-text">About Us</span>
+            </NavLink>
+          )}
         </div>
         <button type="button" className="cart-button" onClick={toggleCart}>
           Cart

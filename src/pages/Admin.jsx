@@ -259,6 +259,16 @@ export default function Admin() {
             </button>
             {status && <p className="status">{status}</p>}
           </div>
+        ) : user.email !== import.meta.env.VITE_ADMIN_EMAIL ? (
+          <div className="auth-form" style={{ textAlign: "center" }}>
+            <h2 style={{ color: "var(--color-danger)", marginBottom: "1rem" }}>Access Denied</h2>
+            <p className="muted" style={{ marginBottom: "2rem" }}>
+              Your account ({user.email}) is not authorized to view the admin panel.
+            </p>
+            <button type="button" className="ghost" onClick={handleLogout}>
+              Sign out and try another account
+            </button>
+          </div>
         ) : (
           <div className="admin-shell">
             <div className="admin-header">
