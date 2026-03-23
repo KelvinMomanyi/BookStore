@@ -20,8 +20,8 @@ export default function Home() {
             <Link to="/store" className="primary">
               Browse the bookstore
             </Link>
-            <Link to="/admin" className="ghost">
-              Upload new titles
+            <Link to="/library" className="ghost">
+              View your library
             </Link>
           </div>
         </div>
