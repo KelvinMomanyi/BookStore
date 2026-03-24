@@ -71,8 +71,12 @@ export default async function handler(req, res) {
 
     res.status(201).json({ id: docRef.id });
   } catch (err) {
-    console.error("[orders/create] failed", err);
-    res.status(500).json({ error: "Unable to create order." });
+    console.error("[orders/create] failed", {
+      message: err?.message,
+      code: err?.code,
+      stack: err?.stack
+    });
+    res.status(500).json({ error: `Unable to create order: ${err?.message || "unknown error"}` });
   }
 }
 

@@ -9,8 +9,25 @@ const getProjectId = () =>
 const getClientEmail = () =>
   normalize(process.env.FIREBASE_CLIENT_EMAIL);
 
-const getPrivateKey = () =>
-  normalize(process.env.FIREBASE_PRIVATE_KEY).replace(/\\n/g, "\n");
+const getPrivateKey = () => {
+  let raw = normalize(process.env.FIREBASE_PRIVATE_KEY);
+  if (!raw) return "";
+
+  // If the value is JSON-stringified (e.g. "\"-----BEGIN...\""), unwrap it
+  if (raw.startsWith('"') && raw.endsWith('"')) {
+    try { raw = JSON.parse(raw); } catch { /* use as-is */ }
+  }
+
+  // Replace escaped newlines with real newlines
+  raw = raw.replace(/\\n/g, "\n");
+
+  // If it was Base64 encoded decode it
+  if (!raw.includes("-----BEGIN") && raw.length > 100) {
+    try { raw = Buffer.from(raw, "base64").toString("utf8"); } catch { /* use as-is */ }
+  }
+
+  return raw;
+};
 
 export const getAdminApp = () => {
   if (!admin.apps.length) {
@@ -18,8 +35,17 @@ export const getAdminApp = () => {
     const clientEmail = getClientEmail();
     const privateKey = getPrivateKey();
 
+    console.log("[firebaseAdmin] init check:", {
+      hasProjectId: Boolean(projectId),
+      hasClientEmail: Boolean(clientEmail),
+      hasPrivateKey: Boolean(privateKey),
+      privateKeyStart: privateKey ? privateKey.substring(0, 30) + "..." : "<empty>"
+    });
+
     if (!projectId || !clientEmail || !privateKey) {
-      throw new Error("Missing Firebase Admin credentials in Vercel environment.");
+      throw new Error(
+        `Missing Firebase Admin credentials: projectId=${Boolean(projectId)}, clientEmail=${Boolean(clientEmail)}, privateKey=${Boolean(privateKey)}`
+      );
     }
 
     admin.initializeApp({
