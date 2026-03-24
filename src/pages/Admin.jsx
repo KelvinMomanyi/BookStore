@@ -5,7 +5,16 @@ import {
   signInWithPopup,
   signOut
 } from "firebase/auth";
-import { auth } from "../firebase.js";
+import {
+  addDoc,
+  collection,
+  deleteDoc,
+  doc,
+  getDocs,
+  serverTimestamp,
+  updateDoc
+} from "firebase/firestore";
+import { auth, db } from "../firebase.js";
 import SectionTitle from "../components/SectionTitle.jsx";
 import { formatCurrency } from "../utils/format.js";
 import { isAdminUser } from "../utils/account.js";
@@ -20,6 +29,43 @@ const initialForm = {
   format: "PDF / EPUB",
   coverUrl: "",
   fileUrl: ""
+};
+
+const toCreatedAtMs = (value) => {
+  if (typeof value === "number") return value;
+  if (typeof value?.toMillis === "function") return value.toMillis();
+  if (typeof value?.seconds === "number") return value.seconds * 1000;
+  return 0;
+};
+
+const mapBookSnapshot = (snap) => {
+  const data = snap.data() || {};
+  return {
+    id: snap.id,
+    ...data,
+    createdAtMs: toCreatedAtMs(data.createdAt)
+  };
+};
+
+const mapApiBook = (book) => ({
+  ...(book || {}),
+  createdAtMs: toCreatedAtMs(book?.createdAtMs ?? book?.createdAt)
+});
+
+const sortBooksByCreatedAt = (books) =>
+  [...books].sort((a, b) => (b.createdAtMs || 0) - (a.createdAtMs || 0));
+
+const getErrorMessage = (err) => (err?.message || "").toString();
+
+const shouldUseClientFallback = (err) => {
+  const message = getErrorMessage(err).toLowerCase();
+  return (
+    message.includes("admin books request failed") ||
+    message.includes("admin access required") ||
+    message.includes("missing firebase admin credentials") ||
+    message.includes("request failed with status 500") ||
+    message.includes("request failed with status 404")
+  );
 };
 
 export default function Admin() {
@@ -44,6 +90,30 @@ export default function Admin() {
     return () => unsub();
   }, []);
 
+  const loadBooksFromClient = async () => {
+    const snapshot = await getDocs(collection(db, "books"));
+    return sortBooksByCreatedAt(snapshot.docs.map(mapBookSnapshot));
+  };
+
+  const saveBookViaClient = async (payload) => {
+    if (isEditing && editId) {
+      await updateDoc(doc(db, "books", editId), {
+        ...payload,
+        updatedAt: serverTimestamp()
+      });
+      return;
+    }
+
+    await addDoc(collection(db, "books"), {
+      ...payload,
+      createdAt: serverTimestamp()
+    });
+  };
+
+  const deleteBookViaClient = async (bookId) => {
+    await deleteDoc(doc(db, "books", bookId));
+  };
+
   const loadBooks = async () => {
     if (!user || !isAdmin) {
       setBooks([]);
@@ -55,9 +125,25 @@ export default function Admin() {
       const response = await authApiRequest("/api/admin/books", {
         method: "GET"
       });
-      setBooks(Array.isArray(response?.books) ? response.books : []);
+      const booksFromApi = Array.isArray(response?.books)
+        ? response.books.map(mapApiBook)
+        : [];
+      setBooks(sortBooksByCreatedAt(booksFromApi));
     } catch (err) {
-      setStatus(err?.message || "Unable to load books.");
+      if (shouldUseClientFallback(err)) {
+        try {
+          const fallbackBooks = await loadBooksFromClient();
+          setBooks(fallbackBooks);
+          setStatus("Admin API unavailable, catalog loaded directly from Firestore.");
+          return;
+        } catch (fallbackErr) {
+          setStatus(getErrorMessage(fallbackErr) || "Unable to load books.");
+          setBooks([]);
+          return;
+        }
+      }
+
+      setStatus(getErrorMessage(err) || "Unable to load books.");
       setBooks([]);
     } finally {
       setLoadingBooks(false);
@@ -213,21 +299,43 @@ export default function Admin() {
         fileUrl: ebookUrl || ""
       };
 
+      let usedFallback = false;
+
       if (isEditing) {
-        await authApiRequest("/api/admin/books", {
-          method: "PATCH",
-          body: {
-            id: editId,
-            ...payload
+        try {
+          await authApiRequest("/api/admin/books", {
+            method: "PATCH",
+            body: {
+              id: editId,
+              ...payload
+            }
+          });
+        } catch (err) {
+          if (!shouldUseClientFallback(err)) {
+            throw err;
           }
-        });
-        setStatus("Ebook updated.");
+          await saveBookViaClient(payload);
+          usedFallback = true;
+        }
+        setStatus(usedFallback ? "Ebook updated (Firestore fallback)." : "Ebook updated.");
       } else {
-        await authApiRequest("/api/admin/books", {
-          method: "POST",
-          body: payload
-        });
-        setStatus("Upload complete. The ebook is now live.");
+        try {
+          await authApiRequest("/api/admin/books", {
+            method: "POST",
+            body: payload
+          });
+        } catch (err) {
+          if (!shouldUseClientFallback(err)) {
+            throw err;
+          }
+          await saveBookViaClient(payload);
+          usedFallback = true;
+        }
+        setStatus(
+          usedFallback
+            ? "Upload complete (Firestore fallback)."
+            : "Upload complete. The ebook is now live."
+        );
       }
 
       resetForm();
@@ -250,11 +358,21 @@ export default function Admin() {
 
     setBusyId(book.id);
     try {
-      await authApiRequest("/api/admin/books", {
-        method: "DELETE",
-        body: { id: book.id }
-      });
+      try {
+        await authApiRequest("/api/admin/books", {
+          method: "DELETE",
+          body: { id: book.id }
+        });
+      } catch (err) {
+        if (!shouldUseClientFallback(err)) {
+          throw err;
+        }
+        await deleteBookViaClient(book.id);
+        setStatus("Book deleted (Firestore fallback).");
+      }
       setBooks((prev) => prev.filter((entry) => entry.id !== book.id));
+    } catch (err) {
+      setStatus(`Delete failed: ${err?.message || "Please try again."}`);
     } finally {
       setBusyId(null);
     }

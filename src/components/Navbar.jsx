@@ -11,7 +11,8 @@ const navLinkClass = ({ isActive }) =>
 export default function Navbar() {
   const { summary, toggleCart } = useCart();
   const [isAdmin, setIsAdmin] = useState(false);
-  const aboutRoute = isAdmin ? "/admin" : "/about";
+  const profileRoute = isAdmin ? "/admin" : "/about";
+  const profileLabel = isAdmin ? "Admin" : "About Us";
 
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, (user) => {
@@ -86,7 +87,7 @@ export default function Navbar() {
             <span className="nav-text">Library</span>
           </NavLink>
 
-          <NavLink to={aboutRoute} className={navLinkClass}>
+          <NavLink to={profileRoute} className={navLinkClass}>
             <span className="nav-icon" aria-hidden="true">
               <svg viewBox="0 0 24 24" role="img" focusable="false" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round">
                 <circle cx="12" cy="12" r="10"></circle>
@@ -94,7 +95,7 @@ export default function Navbar() {
                 <path d="M12 8h.01"></path>
               </svg>
             </span>
-            <span className="nav-text">About Us</span>
+            <span className="nav-text">{profileLabel}</span>
           </NavLink>
         </div>
         <button type="button" className="cart-button" onClick={toggleCart}>
