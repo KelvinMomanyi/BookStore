@@ -57,30 +57,34 @@ export default function BookDetails() {
           />
         </div>
         <div className="details-copy">
+          <p className="kicker">Product details</p>
           <Badge>{book.category || "Ebook"}</Badge>
           <h1>{book.title}</h1>
           <p className="muted">by {book.author}</p>
           <p className="details-description">
             {book.description ||
-              "A beautifully digital ebook curated by Isaac books international."}
+              "A curated digital title from the Isaac Books ecommerce catalog."}
           </p>
           <div className="details-actions">
             <span className="price">{formatCurrency(book.price)}</span>
             <button type="button" className="primary" onClick={() => addToCart(book)}>
               Add to cart
             </button>
+            <Link to="/store" className="ghost">
+              Continue shopping
+            </Link>
           </div>
           <div className="details-list">
             <div>
-              <strong>Format</strong>
+              <strong>File format</strong>
               <span>{book.format || "PDF / EPUB"}</span>
             </div>
             <div>
-              <strong>Access</strong>
+              <strong>Delivery</strong>
               <span>Instant download after checkout</span>
             </div>
             <div>
-              <strong>License</strong>
+              <strong>Usage rights</strong>
               <span>For personal use</span>
             </div>
           </div>

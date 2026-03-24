@@ -13,13 +13,17 @@ export default function BookCard({ book, onAdd }) {
         />
       </Link>
       <div className="book-info">
+        <div className="book-head">
+          <Badge>{book.category || "Ebook"}</Badge>
+          <span className="book-delivery">Instant delivery</span>
+        </div>
         <div>
           <h3>{book.title}</h3>
           <p className="muted">{book.author}</p>
         </div>
         <div className="book-meta">
-          <Badge>{book.category || "Ebook"}</Badge>
           <span className="price">{formatCurrency(book.price)}</span>
+          <span className="muted">Digital product</span>
         </div>
         <button type="button" className="primary" onClick={() => onAdd(book)}>
           Add to cart

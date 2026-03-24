@@ -2,7 +2,7 @@ import BookCard from "./BookCard.jsx";
 
 export default function BookGrid({ books, onAdd }) {
   if (!books.length) {
-    return <p className="empty">No ebooks match this selection yet.</p>;
+    return <p className="empty">No products match this selection yet.</p>;
   }
 
   return (

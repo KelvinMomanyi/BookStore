@@ -13,6 +13,8 @@ Required payment env keys:
 - `VITE_STK_PROXY_URL` (recommended on Vercel, defaults to `/api/stkpush` in production)
 - `VITE_XECO_SERVICE_TYPE` (`payment`)
 - `VITE_AUTHOR_WHATSAPP_NUMBER` (author support WhatsApp number for footer chat icon)
+- `VITE_ADMIN_EMAIL` (admin account email shown/enforced in UI)
+- `VITE_APP_API_BASE` (optional; leave empty for same-origin `/api`)
 
 If you are not using the STK proxy, also set:
 - `VITE_XECO_API_KEY`
@@ -37,17 +39,36 @@ Fields:
 
 Collection: `orders`
 Fields:
+- `userId` (string, Firebase Auth UID)
+- `userEmail` (string, normalized email)
 - `phoneNumber` (string)
 - `items` (array of book snapshots)
 - `total` (number)
 - `status` (string)
 - `createdAt` (timestamp)
+- `payment` (object)
 
 ## Notes
 
 - Admin sign-in uses Firebase Authentication (Google provider).
-- Ebook and cover uploads go to Firebase Storage paths `ebooks/` and `covers/`.
-- Downloads are unlocked via the Library page using just the Order ID. Enforce this with Firebase rules if you need hard access control.
+- Library access is account-scoped: users only see orders linked to their Firebase account (`userId` / `userEmail`).
+- Admin actions are routed through Vercel API and checked against `VITE_ADMIN_EMAIL` / `ADMIN_EMAIL`.
+- If Firestore rules are not deployed yet, use the Vercel secured API routes in this repo for account/admin flows.
+
+## Vercel Secured Account/Admin API
+
+These serverless routes are included:
+- `POST /api/orders/create`
+- `GET /api/orders/account`
+- `POST /api/orders/by-id`
+- `POST /api/orders/by-transaction`
+- `GET|POST|PATCH|DELETE /api/admin/books`
+
+Required Vercel env vars:
+- `FIREBASE_PROJECT_ID` (or `VITE_FIREBASE_PROJECT_ID`)
+- `FIREBASE_CLIENT_EMAIL`
+- `FIREBASE_PRIVATE_KEY`
+- `ADMIN_EMAIL` (recommended; falls back to `VITE_ADMIN_EMAIL`)
 
 ## Webhook (Cloud Functions)
 

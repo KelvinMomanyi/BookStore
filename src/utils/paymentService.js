@@ -121,17 +121,6 @@ const getErrorMessageFromResponse = async (response) => {
   }
 };
 
-console.log("Payment Config Checked:", {
-  usingStkProxy: USE_STK_PROXY,
-  stkProxyUrl: STK_PROXY_URL,
-  hasApiKey: !!API_KEY,
-  serviceType: SERVICE_TYPE || "payment",
-  shortcode: SHORTCODE,
-  baseUrl: BASE_URL,
-  gatewayUrl: GATEWAY_URL,
-  socketUrl: SOCKET_URL
-});
-
 /**
  * Initiates an MPESA STK Push via XECO Gateway
  * @param {Object} data - { phoneNumber, amount, userId, socketId, accountReference, description, callbackUrl }
@@ -180,8 +169,6 @@ export const initiateStkPush = async (data) => {
     payload.callbackUrl = data.callbackUrl || CALLBACK_URL || undefined;
   }
 
-  console.log("Initiating STK Push with payload:", payload);
-
   const requestUrl = USE_STK_PROXY ? STK_PROXY_URL : `${GATEWAY_URL}/stkpush`;
   const headers = {
     "Content-Type": "application/json",
@@ -221,7 +208,6 @@ export const setupSocket = () => {
   }
 
   const socketUrl = ensureSocketNamespace(SOCKET_URL);
-  console.log("Setting up socket to:", socketUrl);
   const socket = io(socketUrl, {
     auth: API_KEY
       ? { apiKey: API_KEY, serviceType: SERVICE_TYPE || "payment" }

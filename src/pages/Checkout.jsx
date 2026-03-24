@@ -1,15 +1,18 @@
 import { useMemo, useState, useEffect, useRef } from "react";
 import { Link } from "react-router-dom";
 import {
-  addDoc,
-  collection,
   doc,
   getDoc,
   onSnapshot,
   serverTimestamp,
   updateDoc
 } from "firebase/firestore";
-import { db } from "../firebase.js";
+import {
+  GoogleAuthProvider,
+  onAuthStateChanged,
+  signInWithPopup
+} from "firebase/auth";
+import { auth, db } from "../firebase.js";
 import SectionTitle from "../components/SectionTitle.jsx";
 import { useCart } from "../state/CartContext.jsx";
 import { formatCurrency } from "../utils/format.js";
@@ -19,16 +22,8 @@ import {
   setupSocket
 } from "../utils/paymentService.js";
 import { isFailedStatus, isPaidStatus, normalizeStatus } from "../utils/orderStatus.js";
-
-const storeOrder = (order) => {
-  try {
-    const existing = JSON.parse(localStorage.getItem("novaleaf_orders") || "[]");
-    const updated = [order, ...existing].slice(0, 5);
-    localStorage.setItem("novaleaf_orders", JSON.stringify(updated));
-  } catch {
-    // ignore
-  }
-};
+import { rememberOrder } from "../utils/account.js";
+import { authApiRequest } from "../utils/secureApi.js";
 
 const getFileExtension = (url) => {
   const clean = (url || "").split("?")[0].split("#")[0];
@@ -117,6 +112,7 @@ export default function Checkout() {
   const [status, setStatus] = useState("");
   const [placing, setPlacing] = useState(false);
   const [purchasedItems, setPurchasedItems] = useState([]);
+  const [user, setUser] = useState(() => auth.currentUser || null);
   const socketRef = useRef(null);
   const timeoutRef = useRef(null);
   const paymentPendingRef = useRef(false);
@@ -134,7 +130,12 @@ export default function Checkout() {
   );
 
   useEffect(() => {
+    const unsub = onAuthStateChanged(auth, (currentUser) => {
+      setUser(currentUser || null);
+    });
+
     return () => {
+      unsub();
       if (timeoutRef.current) {
         clearTimeout(timeoutRef.current);
       }
@@ -253,9 +254,28 @@ export default function Checkout() {
     }
   };
 
+  const handleGoogleLogin = async () => {
+    setStatus("");
+    try {
+      const provider = new GoogleAuthProvider();
+      provider.setCustomParameters({ prompt: "select_account" });
+      await signInWithPopup(auth, provider);
+      setStatus("Signed in successfully. You can now complete checkout.");
+    } catch (err) {
+      console.error("Auth error:", err);
+      setStatus(`Google sign-in failed: ${err.code || err.message}`);
+    }
+  };
+
   const handleCheckout = async () => {
     setStatus("");
     resetOrderState();
+    const currentUser = auth.currentUser || user;
+
+    if (!currentUser) {
+      setStatus("Sign in first so this purchase can be linked to your library account.");
+      return;
+    }
 
     if (!items.length) return;
     const rawPhone = phoneNumber.trim();
@@ -282,19 +302,21 @@ export default function Checkout() {
 
     const orderItems = buildOrderItems(items);
 
-    let docRef;
+    let createdOrderId = "";
     try {
-      docRef = await addDoc(collection(db, "orders"), {
+      const payload = {
         phoneNumber: deliveryPhone,
         items: orderItems,
-        total,
-        createdAt: serverTimestamp(),
-        status: "pending",
-        payment: {
-          provider: "mpesa",
-          status: "initiated"
-        }
+        total
+      };
+      const response = await authApiRequest("/api/orders/create", {
+        method: "POST",
+        body: payload
       });
+      createdOrderId = (response?.id || "").toString().trim();
+      if (!createdOrderId) {
+        throw new Error("Order ID not returned.");
+      }
     } catch (err) {
       console.error("Order creation failed:", err);
       const reason = err?.message || "Please try again.";
@@ -303,12 +325,12 @@ export default function Checkout() {
       return;
     }
 
-    setOrderId(docRef.id);
+    setOrderId(createdOrderId);
     setOrderStatus("pending");
     setPurchasedItems(orderItems);
-    storeOrder({ id: docRef.id });
+    rememberOrder({ id: createdOrderId }, currentUser.uid);
 
-    const orderDocRef = doc(db, "orders", docRef.id);
+    const orderDocRef = doc(db, "orders", createdOrderId);
 
     try {
       const newSocket = setupSocket();
@@ -469,7 +491,7 @@ export default function Checkout() {
             ? "Payment was cancelled."
             : "Payment failed. Please try again.");
         console.warn("Payment failed", {
-          orderId: docRef.id,
+          orderId: createdOrderId,
           message: msg,
           error
         });
@@ -502,7 +524,7 @@ export default function Checkout() {
           data?.mpesa_receipt_number ||
           "";
         console.info("Payment successful", {
-          orderId: docRef.id,
+          orderId: createdOrderId,
           transactionId,
           data
         });
@@ -525,7 +547,6 @@ export default function Checkout() {
       };
 
       const processGatewayEvent = (eventName, rawData) => {
-        console.log(`Socket Received [${eventName}]:`, rawData);
         const payload = getGatewayPayload(rawData);
         const payloadData = payload && typeof payload === "object" ? payload : {};
         const rawDataObject = rawData && typeof rawData === "object" ? rawData : {};
@@ -566,8 +587,8 @@ export default function Checkout() {
             phoneNumber: deliveryPhone,
             amount: total,
             socketId,
-            userId: docRef.id,
-            accountReference: docRef.id
+            userId: createdOrderId,
+            accountReference: createdOrderId
           });
 
           await updateDoc(orderDocRef, {
@@ -613,26 +634,11 @@ export default function Checkout() {
       });
 
       newSocket.on("connect", () => {
-        console.log("Socket connected successfully, ID:", newSocket.id);
         onConnect();
       });
 
-      newSocket.on("connected", (data) => {
-        console.log("Business channel ready:", data);
+      newSocket.on("connected", () => {
         onConnect();
-      });
-
-      newSocket.on("disconnect", (reason) => {
-        console.log("Socket disconnected:", reason);
-      });
-
-      newSocket.on("pong", (data) => {
-        console.log("Socket heartbeat:", data);
-      });
-
-      // Wildcard listener to see EVERYTHING the gateway sends
-      newSocket.onAny((event, ...args) => {
-        console.log(`[SOCKET DEBUG] Global event received: "${event}"`, args);
       });
 
       // The XECO gateway sends updates through this event
@@ -685,8 +691,8 @@ export default function Checkout() {
         const response = await initiateStkPush({
           phoneNumber: deliveryPhone,
           amount: total,
-          userId: docRef.id,
-          accountReference: docRef.id
+          userId: createdOrderId,
+          accountReference: createdOrderId
         });
 
         await updateDoc(orderDocRef, {
@@ -804,22 +810,32 @@ export default function Checkout() {
                     disabled={placing}
                   />
                 </div>
+                {!user ? (
+                  <>
+                    <p className="muted">
+                      Sign in with Google to link this order to your library account.
+                    </p>
+                  </>
+                ) : (
+                  <p className="muted">
+                    This order will be linked to <strong>{user.email}</strong>.
+                  </p>
+                )}
               </div>
 
               <button
                 type="button"
                 className="primary"
-                onClick={handleCheckout}
+                onClick={user ? handleCheckout : handleGoogleLogin}
                 disabled={!items.length || placing}
               >
-                {placing ? "Processing..." : "Pay with M-Pesa"}
+                {placing ? "Processing..." : user ? "Pay with M-Pesa" : "Sign in with Google"}
               </button>
 
               {placing && orderId ? (
                 <button
                   type="button"
-                  className="ghost"
-                  style={{ marginTop: "0.5rem", width: "100%" }}
+                  className="ghost checkout-refresh"
                   onClick={async () => {
                     setStatus("Checking payment status...");
                     try {

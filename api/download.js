@@ -165,13 +165,11 @@ export default async function handler(req, res) {
     // Helper to try a fetch and record result
     async function tryFetch(url, method, label) {
       if (!url) return false;
-      console.log(`Trying ${label} for:`, url.split("?")[0]);
       try {
         const res = await fetch(url, { method });
         if (res.ok) {
           response = res;
           sourceLabel = label;
-          console.log(`${label} succeeded.`);
           return true;
         } else {
           const text = await res.text().catch(() => "");

@@ -5,20 +5,11 @@ import {
   signInWithPopup,
   signOut
 } from "firebase/auth";
-import {
-  addDoc,
-  collection,
-  serverTimestamp,
-  onSnapshot,
-  query,
-  orderBy,
-  doc,
-  updateDoc,
-  deleteDoc
-} from "firebase/firestore";
-import { auth, db } from "../firebase.js";
+import { auth } from "../firebase.js";
 import SectionTitle from "../components/SectionTitle.jsx";
 import { formatCurrency } from "../utils/format.js";
+import { isAdminUser } from "../utils/account.js";
+import { authApiRequest } from "../utils/secureApi.js";
 
 const initialForm = {
   title: "",
@@ -44,6 +35,7 @@ export default function Admin() {
   const [loadingBooks, setLoadingBooks] = useState(false);
   const [editId, setEditId] = useState(null);
   const [busyId, setBusyId] = useState(null);
+  const isAdmin = isAdminUser(user);
 
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, (currentUser) => {
@@ -52,27 +44,34 @@ export default function Admin() {
     return () => unsub();
   }, []);
 
-  useEffect(() => {
-    if (!user) {
+  const loadBooks = async () => {
+    if (!user || !isAdmin) {
       setBooks([]);
       return;
     }
 
     setLoadingBooks(true);
-    const q = query(collection(db, "books"), orderBy("createdAt", "desc"));
-    const unsub = onSnapshot(
-      q,
-      (snapshot) => {
-        setBooks(snapshot.docs.map((docItem) => ({ id: docItem.id, ...docItem.data() })));
-        setLoadingBooks(false);
-      },
-      () => {
-        setLoadingBooks(false);
-      }
-    );
+    try {
+      const response = await authApiRequest("/api/admin/books", {
+        method: "GET"
+      });
+      setBooks(Array.isArray(response?.books) ? response.books : []);
+    } catch (err) {
+      setStatus(err?.message || "Unable to load books.");
+      setBooks([]);
+    } finally {
+      setLoadingBooks(false);
+    }
+  };
 
-    return () => unsub();
-  }, [user]);
+  useEffect(() => {
+    if (!user || !isAdmin) {
+      setBooks([]);
+      setLoadingBooks(false);
+      return;
+    }
+    loadBooks();
+  }, [user, isAdmin]);
 
   const isEditing = Boolean(editId);
   const readyToUpload = useMemo(() => {
@@ -155,6 +154,10 @@ export default function Admin() {
   };
 
   const startEdit = (book) => {
+    if (!isAdmin) {
+      setStatus("Only the configured admin account can edit books.");
+      return;
+    }
     setEditId(book.id);
     setForm({
       title: book.title || "",
@@ -173,6 +176,10 @@ export default function Admin() {
 
   const handleSubmit = async (event) => {
     event.preventDefault();
+    if (!isAdmin) {
+      setStatus("Only the configured admin account can publish or edit books.");
+      return;
+    }
     if (!readyToUpload) {
       setStatus("Please complete the required fields.");
       return;
@@ -207,20 +214,24 @@ export default function Admin() {
       };
 
       if (isEditing) {
-        await updateDoc(doc(db, "books", editId), {
-          ...payload,
-          updatedAt: serverTimestamp()
+        await authApiRequest("/api/admin/books", {
+          method: "PATCH",
+          body: {
+            id: editId,
+            ...payload
+          }
         });
         setStatus("Ebook updated.");
       } else {
-        await addDoc(collection(db, "books"), {
-          ...payload,
-          createdAt: serverTimestamp()
+        await authApiRequest("/api/admin/books", {
+          method: "POST",
+          body: payload
         });
         setStatus("Upload complete. The ebook is now live.");
       }
 
       resetForm();
+      await loadBooks();
     } catch (err) {
       console.error("Submission error:", err);
       setStatus(`Upload failed: ${err.message || "Please try again."}`);
@@ -230,12 +241,20 @@ export default function Admin() {
   };
 
   const handleDelete = async (book) => {
+    if (!isAdmin) {
+      setStatus("Only the configured admin account can delete books.");
+      return;
+    }
     const ok = window.confirm(`Delete "${book.title}"? This cannot be undone.`);
     if (!ok) return;
 
     setBusyId(book.id);
     try {
-      await deleteDoc(doc(db, "books", book.id));
+      await authApiRequest("/api/admin/books", {
+        method: "DELETE",
+        body: { id: book.id }
+      });
+      setBooks((prev) => prev.filter((entry) => entry.id !== book.id));
     } finally {
       setBusyId(null);
     }
@@ -259,10 +278,10 @@ export default function Admin() {
             </button>
             {status && <p className="status">{status}</p>}
           </div>
-        ) : user.email !== import.meta.env.VITE_ADMIN_EMAIL ? (
-          <div className="auth-form" style={{ textAlign: "center" }}>
-            <h2 style={{ color: "var(--color-danger)", marginBottom: "1rem" }}>Access Denied</h2>
-            <p className="muted" style={{ marginBottom: "2rem" }}>
+        ) : !isAdmin ? (
+          <div className="auth-form center">
+            <h2>Access Denied</h2>
+            <p className="muted">
               Your account ({user.email}) is not authorized to view the admin panel.
             </p>
             <button type="button" className="ghost" onClick={handleLogout}>
@@ -373,9 +392,9 @@ export default function Admin() {
               </div>
               <div>
                 <label>Ebook file (PDF, EPUB)</label>
-                <div className="grid-2" style={{ gap: "1rem", marginBottom: "0.5rem" }}>
+                <div className="grid-2 file-split">
                   <div>
-                    <span className="muted" style={{ display: "block", fontSize: "0.8rem", marginBottom: "0.2rem" }}>Upload file</span>
+                    <span className="muted tiny">Upload file</span>
                     <input
                       type="file"
                       accept=".pdf,.epub"
@@ -383,7 +402,7 @@ export default function Admin() {
                     />
                   </div>
                   <div>
-                    <span className="muted" style={{ display: "block", fontSize: "0.8rem", marginBottom: "0.2rem" }}>Or paste URL</span>
+                    <span className="muted tiny">Or paste URL</span>
                     <input
                       name="fileUrl"
                       value={form.fileUrl}
@@ -422,7 +441,7 @@ export default function Admin() {
                     <h4>{book.title}</h4>
                     <p className="muted">{book.author}</p>
                     <p className="muted">
-                      {book.category || "Featured"} ? {formatCurrency(book.price)}
+                      {book.category || "Featured"} - {formatCurrency(book.price)}
                     </p>
                   </div>
                   <div className="admin-actions">

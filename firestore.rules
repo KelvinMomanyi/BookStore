@@ -2,17 +2,66 @@ rules_version = '2';
 
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Allow admins to manage books
-    match /books/{bookId} {
-      allow read: if true;
-      allow write: if request.auth != null;
+    function normalizeEmail(value) {
+      return value is string ? lower(value) : "";
     }
 
-    // Allow public to create orders, but only owners/admins to read them
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isAdmin() {
+      // Keep this value synchronized with VITE_ADMIN_EMAIL.
+      return isSignedIn() &&
+        normalizeEmail(request.auth.token.email) == "kelvinmomanyi@gmail.com";
+    }
+
+    function hasOwner(data) {
+      return (data.userId is string && data.userId.size() > 0) ||
+        (data.userEmail is string && data.userEmail.size() > 0);
+    }
+
+    function isOwner(data) {
+      return isSignedIn() &&
+        (
+          (data.userId is string && data.userId == request.auth.uid) ||
+          (data.userEmail is string &&
+            normalizeEmail(data.userEmail) == normalizeEmail(request.auth.token.email))
+        );
+    }
+
+    function isClaimingUnownedOrder() {
+      return isSignedIn() &&
+        !hasOwner(resource.data) &&
+        request.resource.data.userId == request.auth.uid &&
+        normalizeEmail(request.resource.data.userEmail) ==
+          normalizeEmail(request.auth.token.email) &&
+        request.resource.data
+          .diff(resource.data)
+          .changedKeys()
+          .hasOnly(["userId", "userEmail", "linkedAt"]);
+    }
+
+    match /books/{bookId} {
+      allow read: if true;
+      allow create, update, delete: if isAdmin();
+    }
+
     match /orders/{orderId} {
-      allow create: if true;
-      allow read, update: if true; // Temporary allow for testing/payment updates via client
-      allow delete: if request.auth != null;
+      allow create: if isSignedIn() &&
+        request.resource.data.userId == request.auth.uid &&
+        normalizeEmail(request.resource.data.userEmail) ==
+          normalizeEmail(request.auth.token.email);
+
+      allow read: if isAdmin() ||
+        isOwner(resource.data) ||
+        (isSignedIn() && !hasOwner(resource.data));
+
+      allow update: if isAdmin() ||
+        isOwner(resource.data) ||
+        isClaimingUnownedOrder();
+
+      allow delete: if isAdmin();
     }
   }
 }

@@ -1,48 +1,16 @@
 import { useEffect, useMemo, useState } from "react";
 import {
-  collection,
-  doc,
-  getDoc,
-  getDocs,
-  limit,
-  query,
-  where
-} from "firebase/firestore";
-import {
   GoogleAuthProvider,
   onAuthStateChanged,
   signInWithPopup,
   signOut
 } from "firebase/auth";
-import { db, auth } from "../firebase.js";
+import { auth } from "../firebase.js";
 import SectionTitle from "../components/SectionTitle.jsx";
 import { formatCurrency } from "../utils/format.js";
 import { isFailedStatus, isPaidStatus, normalizeStatus } from "../utils/orderStatus.js";
-
-const loadStoredOrders = () => {
-  try {
-    return JSON.parse(localStorage.getItem("novaleaf_orders") || "[]");
-  } catch {
-    return [];
-  }
-};
-
-const storeOrder = (id) => {
-  if (!id) return;
-  try {
-    const existing = loadStoredOrders();
-    const updated = [
-      { id },
-      ...existing.filter((entry) => {
-        const entryId = typeof entry === "string" ? entry : entry?.id;
-        return entryId && entryId !== id;
-      })
-    ].slice(0, 5);
-    localStorage.setItem("novaleaf_orders", JSON.stringify(updated));
-  } catch {
-    // ignore local storage write errors
-  }
-};
+import { loadStoredOrders, rememberOrder } from "../utils/account.js";
+import { authApiRequest } from "../utils/secureApi.js";
 
 const normalizeTransactionCode = (value) =>
   (value || "").toString().trim().toUpperCase();
@@ -125,34 +93,98 @@ const triggerDownload = async (url, filename) => {
       setTimeout(() => document.body.removeChild(iframe), 10000);
       return;
     }
-  } catch { /* ignore */ }
+  } catch {
+    // ignore
+  }
 
   window.open(url, "_blank");
 };
+
+const getOrderTimestamp = (order) =>
+  Number(order?.createdAtMs || order?.linkedAtMs || order?.paidAtMs || 0);
 
 export default function Library() {
   const [user, setUser] = useState(null);
   const [orderId, setOrderId] = useState("");
   const [transactionCode, setTransactionCode] = useState("");
   const [order, setOrder] = useState(null);
+  const [accountOrders, setAccountOrders] = useState([]);
   const [status, setStatus] = useState("");
   const [loading, setLoading] = useState(false);
   const [fetchingPayment, setFetchingPayment] = useState(false);
-  const storedOrders = useMemo(loadStoredOrders, []);
+  const [loadingOrders, setLoadingOrders] = useState(false);
+
+  const storedOrders = useMemo(
+    () => loadStoredOrders(user?.uid),
+    [user?.uid]
+  );
 
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, (currentUser) => {
       setUser(currentUser || null);
+      setOrder(null);
+      setStatus("");
+      if (!currentUser) {
+        setOrderId("");
+        setTransactionCode("");
+        setAccountOrders([]);
+      }
     });
     return () => unsub();
   }, []);
 
   useEffect(() => {
+    if (!user) return;
+    if (accountOrders.length > 0) {
+      setOrderId((prev) => prev || accountOrders[0].id);
+      return;
+    }
     if (storedOrders.length > 0) {
       const first = storedOrders[0];
-      setOrderId(typeof first === "string" ? first : first.id || "");
+      const firstId = typeof first === "string" ? first : first?.id || "";
+      if (firstId) {
+        setOrderId((prev) => prev || firstId);
+      }
     }
-  }, [storedOrders]);
+  }, [user, accountOrders, storedOrders]);
+
+  useEffect(() => {
+    if (!user) return;
+
+    let cancelled = false;
+    const loadOrders = async () => {
+      setLoadingOrders(true);
+      try {
+        const response = await authApiRequest("/api/orders/account", {
+          method: "GET"
+        });
+        if (cancelled) return;
+        const merged = Array.isArray(response?.orders) ? response.orders : [];
+        setAccountOrders(merged);
+      } catch (err) {
+        if (!cancelled) {
+          setStatus(err?.message || "Unable to load your past purchases right now.");
+        }
+      } finally {
+        if (!cancelled) {
+          setLoadingOrders(false);
+        }
+      }
+    };
+
+    loadOrders();
+    return () => {
+      cancelled = true;
+    };
+  }, [user]);
+
+  const upsertAccountOrder = (entry) => {
+    setAccountOrders((prev) => {
+      const next = [entry, ...prev.filter((item) => item.id !== entry.id)];
+      next.sort((a, b) => getOrderTimestamp(b) - getOrderTimestamp(a));
+      return next;
+    });
+  };
 
   const handleGoogleLogin = async () => {
     setStatus("");
@@ -170,10 +202,16 @@ export default function Library() {
     await signOut(auth);
   };
 
-  const applyOrderResult = (snap, source = "order-id") => {
-    const data = snap.data();
-    const normalizedStatus = normalizeStatus(data.status);
-    const paymentConfirmed = isPaymentConfirmed(data);
+  const applyOrderResult = (orderData, source = "order-id") => {
+    if (!orderData?.id) return;
+    const normalizedStatus = normalizeStatus(orderData.status);
+    const paymentConfirmed = isPaymentConfirmed(orderData);
+    const fullOrder = { ...orderData, locked: !paymentConfirmed };
+
+    setOrder(fullOrder);
+    setOrderId(orderData.id);
+    rememberOrder(orderData.id, user?.uid);
+    upsertAccountOrder(orderData);
 
     if (!paymentConfirmed) {
       if (isFailedStatus(normalizedStatus)) {
@@ -181,53 +219,61 @@ export default function Library() {
       } else {
         setStatus(
           source === "mpesa-code"
-            ? "Transaction code found, but payment is not confirmed yet."
+            ? "Payment code found, but payment is not confirmed yet."
             : "Payment is not confirmed yet. Please check again shortly."
         );
       }
-      setOrder({ id: snap.id, ...data, locked: true });
       return;
     }
 
-    setOrder({ id: snap.id, ...data, locked: false });
-    setOrderId(snap.id);
-    storeOrder(snap.id);
-
     if (source === "mpesa-code") {
       setStatus("Payment confirmed. Your books are now available below.");
+    } else {
+      setStatus("");
     }
   };
 
-  const handleLookup = async (event) => {
-    event.preventDefault();
-    setStatus("");
-    setOrder(null);
-
-    if (!orderId) {
+  const loadOrderById = async (id, source = "order-id") => {
+    const targetId = (id || "").trim();
+    if (!targetId) {
       setStatus("Enter your order ID.");
       return;
     }
 
     setLoading(true);
+    setStatus("");
+    setOrder(null);
     try {
-      const snap = await getDoc(doc(db, "orders", orderId.trim()));
-      if (!snap.exists()) {
-        setStatus("Order not found.");
-        return;
-      }
-
-      applyOrderResult(snap, "order-id");
+      const response = await authApiRequest("/api/orders/by-id", {
+        method: "POST",
+        body: {
+          orderId: targetId,
+          source,
+          claimIfUnassigned: true
+        }
+      });
+      applyOrderResult(response?.order, source);
     } catch (err) {
-      setStatus("Unable to load order. Try again.");
+      setStatus(err?.message || "Unable to load order. Ensure it belongs to your account.");
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleLookup = async (event) => {
+    event.preventDefault();
+    await loadOrderById(orderId, "order-id");
   };
 
   const handlePaymentFetch = async (event) => {
     event.preventDefault();
     setStatus("");
     setOrder(null);
+
+    if (!user) {
+      setStatus("Sign in to verify payment codes.");
+      return;
+    }
 
     const normalizedCode = normalizeTransactionCode(transactionCode);
     if (!normalizedCode) {
@@ -237,30 +283,13 @@ export default function Library() {
 
     setFetchingPayment(true);
     try {
-      const attempts = [...new Set([normalizedCode, normalizedCode.toLowerCase()])];
-      let matchedDoc = null;
-
-      for (const code of attempts) {
-        const paymentQuery = query(
-          collection(db, "orders"),
-          where("payment.transactionId", "==", code),
-          limit(1)
-        );
-        const snapshot = await getDocs(paymentQuery);
-        if (!snapshot.empty) {
-          matchedDoc = snapshot.docs[0];
-          break;
-        }
-      }
-
-      if (!matchedDoc) {
-        setStatus("No payment found for that M-Pesa transaction code.");
-        return;
-      }
-
-      applyOrderResult(matchedDoc, "mpesa-code");
+      const response = await authApiRequest("/api/orders/by-transaction", {
+        method: "POST",
+        body: { code: normalizedCode }
+      });
+      applyOrderResult(response?.order, "mpesa-code");
     } catch (err) {
-      setStatus("Unable to verify payment code right now. Please try again.");
+      setStatus(err?.message || "Unable to verify payment code right now. Please try again.");
     } finally {
       setFetchingPayment(false);
     }
@@ -271,119 +300,150 @@ export default function Library() {
       <section className="panel">
         <SectionTitle
           title="Your Library"
-          subtitle="Access purchased ebooks with your order ID or M-Pesa transaction code."
+          subtitle="Your purchases are private to your signed-in account."
         />
-        
+
         {!user ? (
-          <div className="auth-form" style={{ textAlign: "center", padding: "2rem 0" }}>
-            <h3 style={{ marginBottom: "1rem" }}>Sign in to access your library</h3>
-            <p className="muted" style={{ marginBottom: "2rem", maxWidth: "400px", margin: "0 auto 2rem" }}>
+          <div className="auth-form center">
+            <h3>Sign in to access your library</h3>
+            <p className="muted">
               Please sign in with Google to view and download your purchased ebooks.
             </p>
             <button type="button" className="primary google" onClick={handleGoogleLogin}>
               Sign in with Google
             </button>
-            {status && <p className="status" style={{ marginTop: "1rem" }}>{status}</p>}
+            {status && <p className="status">{status}</p>}
           </div>
         ) : (
           <>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "2rem", padding: "1rem", background: "var(--bg-alt)", borderRadius: "var(--radius-md)" }}>
-              <p style={{ margin: 0 }}>Signed in as <strong>{user.email}</strong></p>
-              <button type="button" className="ghost" onClick={handleLogout} style={{ padding: "6px 14px", fontSize: "0.85rem" }}>
+            <div className="account-bar">
+              <p>
+                Signed in as <strong>{user.email}</strong>
+              </p>
+              <button type="button" className="ghost" onClick={handleLogout}>
                 Sign out
               </button>
             </div>
-            
-            <form className="library-form" onSubmit={handleLookup}>
-          <div>
-            <label>Order ID</label>
-            <input
-              value={orderId}
-              onChange={(event) => setOrderId(event.target.value)}
-              placeholder="Enter your order ID"
-              required
-            />
-          </div>
-          <button type="submit" className="primary" disabled={loading}>
-            {loading ? "Checking..." : "Unlock library"}
-          </button>
-        </form>
-        <form className="library-form" onSubmit={handlePaymentFetch}>
-          <div>
-            <label>M-Pesa transaction code</label>
-            <input
-              value={transactionCode}
-              onChange={(event) => setTransactionCode(event.target.value)}
-              placeholder="e.g. QHG7A1B2C3"
-              required
-            />
-          </div>
-          <button type="submit" className="ghost" disabled={fetchingPayment}>
-            {fetchingPayment ? "Fetching..." : "Fetch payment"}
-          </button>
-        </form>
-        {status && <p className="status">{status}</p>}
 
-        {order && (
-          <div className="order-card">
-            <div className="order-header">
+            <div className="library-form">
               <div>
-                <h3>Order {order.id}</h3>
-                {order.payment?.transactionId ? (
-                  <p className="muted">
-                    M-Pesa code: <strong>{order.payment.transactionId}</strong>
-                  </p>
-                ) : null}
+                <label>Orders on this account</label>
+                <select
+                  value={orderId}
+                  onChange={(event) => setOrderId(event.target.value)}
+                  disabled={loadingOrders || accountOrders.length === 0}
+                >
+                  {accountOrders.length ? (
+                    accountOrders.map((entry) => (
+                      <option key={entry.id} value={entry.id}>
+                        {entry.id} - {isPaymentConfirmed(entry) ? "paid" : normalizeStatus(entry.status || "pending")}
+                      </option>
+                    ))
+                  ) : (
+                    <option value="">
+                      {loadingOrders ? "Loading your orders..." : "No linked orders yet"}
+                    </option>
+                  )}
+                </select>
               </div>
-              <div>
-                <p className="muted">Total</p>
-                <strong>{formatCurrency(order.total)}</strong>
-              </div>
+              <button
+                type="button"
+                className="ghost"
+                disabled={!orderId || loading}
+                onClick={() => loadOrderById(orderId, "order-id")}
+              >
+                Open selected
+              </button>
             </div>
-            <div className="order-items">
-              {order.items?.map((item) => (
-                <div key={item.bookId || item.title} className="order-item">
-                  <img
-                    src={item.coverUrl || "/placeholder-cover.svg"}
-                    alt={item.title}
-                  />
+
+            <form className="library-form" onSubmit={handleLookup}>
+              <div>
+                <label>Order ID</label>
+                <input
+                  value={orderId}
+                  onChange={(event) => setOrderId(event.target.value)}
+                  placeholder="Enter your order ID"
+                  required
+                />
+              </div>
+              <button type="submit" className="primary" disabled={loading}>
+                {loading ? "Checking..." : "Unlock library"}
+              </button>
+            </form>
+            <form className="library-form" onSubmit={handlePaymentFetch}>
+              <div>
+                <label>M-Pesa transaction code</label>
+                <input
+                  value={transactionCode}
+                  onChange={(event) => setTransactionCode(event.target.value)}
+                  placeholder="e.g. QHG7A1B2C3"
+                  required
+                />
+              </div>
+              <button type="submit" className="ghost" disabled={fetchingPayment}>
+                {fetchingPayment ? "Fetching..." : "Fetch payment"}
+              </button>
+            </form>
+            {status && <p className="status">{status}</p>}
+
+            {order && (
+              <div className="order-card">
+                <div className="order-header">
                   <div>
-                    <h4>{item.title}</h4>
-                    <p className="muted">
-                      {item.author} - Qty {item.qty || 1}
-                    </p>
-                    {order.locked ? (
-                      <span className="muted">Payment pending</span>
-                    ) : item.fileUrl ? (
-                      <button
-                        type="button"
-                        className="primary"
-                        onClick={() =>
-                          triggerDownload(
-                            item.fileUrl,
-                            buildDownloadName(item.fileUrl, item.title)
-                          )
-                        }
-                      >
-                        {buildDownloadLabel(item.fileUrl)}
-                      </button>
-                    ) : (
-                      <span className="muted">Download unavailable</span>
-                    )}
+                    <h3>Order {order.id}</h3>
+                    {order.payment?.transactionId ? (
+                      <p className="muted">
+                        M-Pesa code: <strong>{order.payment.transactionId}</strong>
+                      </p>
+                    ) : null}
                   </div>
-                  <span className="price">
-                    {formatCurrency(item.price * (item.qty || 1))}
-                  </span>
+                  <div>
+                    <p className="muted">Total</p>
+                    <strong>{formatCurrency(order.total)}</strong>
+                  </div>
                 </div>
-              ))}
-            </div>
-          </div>
-        )}
-        </>
+                <div className="order-items">
+                  {order.items?.map((item) => (
+                    <div key={item.bookId || item.title} className="order-item">
+                      <img
+                        src={item.coverUrl || "/placeholder-cover.svg"}
+                        alt={item.title}
+                      />
+                      <div>
+                        <h4>{item.title}</h4>
+                        <p className="muted">
+                          {item.author} - Qty {item.qty || 1}
+                        </p>
+                        {order.locked ? (
+                          <span className="muted">Payment pending</span>
+                        ) : item.fileUrl ? (
+                          <button
+                            type="button"
+                            className="primary"
+                            onClick={() =>
+                              triggerDownload(
+                                item.fileUrl,
+                                buildDownloadName(item.fileUrl, item.title)
+                              )
+                            }
+                          >
+                            {buildDownloadLabel(item.fileUrl)}
+                          </button>
+                        ) : (
+                          <span className="muted">Download unavailable</span>
+                        )}
+                      </div>
+                      <span className="price">
+                        {formatCurrency(item.price * (item.qty || 1))}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </>
         )}
       </section>
     </div>
   );
 }
-
-
