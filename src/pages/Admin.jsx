@@ -57,6 +57,22 @@ const sortBooksByCreatedAt = (books) =>
 
 const getErrorMessage = (err) => (err?.message || "").toString();
 
+const isPermissionDeniedError = (err) => {
+  const message = getErrorMessage(err).toLowerCase();
+  return (
+    message.includes("missing or insufficient permissions") ||
+    message.includes("insufficient permissions") ||
+    message.includes("permission-denied")
+  );
+};
+
+const withPermissionHint = (err) => {
+  if (!isPermissionDeniedError(err)) return err;
+  return new Error(
+    "Firestore denied access. Deploy firestore.rules and ensure the signed-in admin email matches the rule, or configure Vercel ADMIN_EMAIL + FIREBASE_* credentials so /api/admin/books handles writes."
+  );
+};
+
 const shouldUseClientFallback = (err) => {
   const message = getErrorMessage(err).toLowerCase();
   return (
@@ -137,7 +153,9 @@ export default function Admin() {
           setStatus("Admin API unavailable, catalog loaded directly from Firestore.");
           return;
         } catch (fallbackErr) {
-          setStatus(getErrorMessage(fallbackErr) || "Unable to load books.");
+          setStatus(
+            getErrorMessage(withPermissionHint(fallbackErr)) || "Unable to load books."
+          );
           setBooks([]);
           return;
         }
@@ -314,7 +332,11 @@ export default function Admin() {
           if (!shouldUseClientFallback(err)) {
             throw err;
           }
-          await saveBookViaClient(payload);
+          try {
+            await saveBookViaClient(payload);
+          } catch (fallbackErr) {
+            throw withPermissionHint(fallbackErr);
+          }
           usedFallback = true;
         }
         setStatus(usedFallback ? "Ebook updated (Firestore fallback)." : "Ebook updated.");
@@ -328,7 +350,11 @@ export default function Admin() {
           if (!shouldUseClientFallback(err)) {
             throw err;
           }
-          await saveBookViaClient(payload);
+          try {
+            await saveBookViaClient(payload);
+          } catch (fallbackErr) {
+            throw withPermissionHint(fallbackErr);
+          }
           usedFallback = true;
         }
         setStatus(
@@ -367,7 +393,11 @@ export default function Admin() {
         if (!shouldUseClientFallback(err)) {
           throw err;
         }
-        await deleteBookViaClient(book.id);
+        try {
+          await deleteBookViaClient(book.id);
+        } catch (fallbackErr) {
+          throw withPermissionHint(fallbackErr);
+        }
         setStatus("Book deleted (Firestore fallback).");
       }
       setBooks((prev) => prev.filter((entry) => entry.id !== book.id));

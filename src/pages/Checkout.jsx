@@ -1,6 +1,8 @@
 import { useMemo, useState, useEffect, useRef } from "react";
 import { Link } from "react-router-dom";
 import {
+  addDoc,
+  collection,
   doc,
   getDoc,
   onSnapshot,
@@ -24,6 +26,17 @@ import {
 import { isFailedStatus, isPaidStatus, normalizeStatus } from "../utils/orderStatus.js";
 import { rememberOrder } from "../utils/account.js";
 import { authApiRequest } from "../utils/secureApi.js";
+
+const getErrorMessage = (err) => (err?.message || "").toString();
+
+const shouldFallbackOrderCreate = (err) => {
+  const message = getErrorMessage(err).toLowerCase();
+  return (
+    message.includes("unable to create order") ||
+    message.includes("request failed with status 500") ||
+    message.includes("internal server error")
+  );
+};
 
 const getFileExtension = (url) => {
   const clean = (url || "").split("?")[0].split("#")[0];
@@ -301,6 +314,22 @@ export default function Checkout() {
     setPlacing(true);
 
     const orderItems = buildOrderItems(items);
+    const createOrderViaClient = async () => {
+      const fallbackDoc = await addDoc(collection(db, "orders"), {
+        userId: (currentUser?.uid || "").toString().trim(),
+        userEmail: (currentUser?.email || "").toString().trim().toLowerCase(),
+        phoneNumber: deliveryPhone,
+        items: orderItems,
+        total,
+        createdAt: serverTimestamp(),
+        status: "pending",
+        payment: {
+          provider: "mpesa",
+          status: "initiated"
+        }
+      });
+      return fallbackDoc.id;
+    };
 
     let createdOrderId = "";
     try {
@@ -318,11 +347,24 @@ export default function Checkout() {
         throw new Error("Order ID not returned.");
       }
     } catch (err) {
-      console.error("Order creation failed:", err);
-      const reason = err?.message || "Please try again.";
-      setStatus(`Unable to create the order: ${reason}`);
-      setPlacing(false);
-      return;
+      if (shouldFallbackOrderCreate(err)) {
+        try {
+          createdOrderId = await createOrderViaClient();
+          setStatus("Order created. Continuing checkout...");
+        } catch (fallbackErr) {
+          console.error("Order creation failed:", fallbackErr);
+          const reason = fallbackErr?.message || "Please try again.";
+          setStatus(`Unable to create the order: ${reason}`);
+          setPlacing(false);
+          return;
+        }
+      } else {
+        console.error("Order creation failed:", err);
+        const reason = err?.message || "Please try again.";
+        setStatus(`Unable to create the order: ${reason}`);
+        setPlacing(false);
+        return;
+      }
     }
 
     setOrderId(createdOrderId);
