@@ -1,3 +1,10 @@
+import {
+  XecoflowRequestError,
+  buildXecoflowStkPushUrl,
+  getMissingXecoflowConfig,
+  requestXecoflowJson
+} from "./_lib/xecoflow.js";
+
 const normalize = (value) => (value || "").toString().trim();
 
 const parseBody = (req) => {
@@ -16,41 +23,6 @@ const parseBody = (req) => {
   return {};
 };
 
-const withNoTrailingSlash = (value) => normalize(value).replace(/\/+$/g, "");
-
-const buildGatewayStkUrl = () => {
-  const explicitGateway =
-    normalize(process.env.XECO_GATEWAY_URL) ||
-    normalize(process.env.VITE_XECO_GATEWAY_URL);
-  if (explicitGateway) {
-    return `${withNoTrailingSlash(explicitGateway)}/stkpush`;
-  }
-
-  const apiBase =
-    normalize(process.env.XECO_API_BASE_URL) ||
-    normalize(process.env.VITE_API_BASE_URL);
-  if (apiBase) {
-    return `${withNoTrailingSlash(apiBase)}/api/v1/gateway/stkpush`;
-  }
-
-  return "";
-};
-
-const readJsonOrText = async (response) => {
-  const contentType = response.headers.get("content-type") || "";
-  const text = await response.text();
-
-  if (contentType.includes("application/json")) {
-    try {
-      return { type: "json", data: JSON.parse(text) };
-    } catch {
-      return { type: "text", data: text };
-    }
-  }
-
-  return { type: "text", data: text };
-};
-
 export default async function handler(req, res) {
   if (req.method !== "POST") {
     res.status(405).setHeader("Allow", "POST").send("Method Not Allowed");
@@ -58,21 +30,10 @@ export default async function handler(req, res) {
   }
 
   const body = parseBody(req);
-  const gatewayStkUrl = buildGatewayStkUrl();
-  const apiKey =
-    normalize(process.env.XECO_API_KEY) ||
-    normalize(process.env.VITE_XECO_API_KEY);
-  const serviceType =
-    normalize(process.env.XECO_SERVICE_TYPE) ||
-    normalize(process.env.XECO_PAYMENT_SERVICE_TYPE) ||
-    normalize(process.env.VITE_XECO_SERVICE_TYPE) ||
-    "payment";
-  const fallbackShortcode =
-    normalize(process.env.XECO_BUSINESS_SHORTCODE) ||
-    normalize(process.env.VITE_XECO_BUSINESS_SHORTCODE);
-  const fallbackCallbackUrl =
-    normalize(process.env.XECO_CALLBACK_URL) ||
-    normalize(process.env.VITE_XECO_CALLBACK_URL);
+  const gatewayStkUrl = buildXecoflowStkPushUrl();
+
+  const fallbackShortcode = normalize(process.env.XECO_BUSINESS_SHORTCODE);
+  const fallbackCallbackUrl = normalize(process.env.XECO_CALLBACK_URL);
 
   // Prefer server-side configuration and only fall back to client-provided
   // values when server env vars are unavailable.
@@ -80,24 +41,21 @@ export default async function handler(req, res) {
     fallbackShortcode || normalize(body.businessShortcode);
   const callbackUrl = fallbackCallbackUrl || normalize(body.callbackUrl);
 
-  const missing = [];
-  if (!gatewayStkUrl) {
-    missing.push("XECO_GATEWAY_URL or XECO_API_BASE_URL");
-  }
-  if (!apiKey) {
-    missing.push("XECO_API_KEY");
-  }
+  const missing = getMissingXecoflowConfig({ requireGateway: true });
   if (!businessShortcode) {
     missing.push("XECO_BUSINESS_SHORTCODE");
   }
   if (!callbackUrl) {
     missing.push("XECO_CALLBACK_URL");
   }
+  if (!gatewayStkUrl) {
+    missing.push("XECO_STKPUSH_URL or XECO_GATEWAY_URL");
+  }
 
   if (missing.length) {
     res.status(500).json({
       error: "STK proxy is not configured.",
-      missing
+      missing: [...new Set(missing)]
     });
     return;
   }
@@ -109,30 +67,30 @@ export default async function handler(req, res) {
   };
 
   try {
-    const gatewayResponse = await fetch(gatewayStkUrl, {
+    const data = await requestXecoflowJson(gatewayStkUrl, {
       method: "POST",
       headers: {
-        "Content-Type": "application/json",
-        "x-api-key": apiKey,
-        "x-service-type": serviceType
+        "Content-Type": "application/json"
       },
       body: JSON.stringify(payload)
     });
 
-    const upstream = await readJsonOrText(gatewayResponse);
-
-    if (upstream.type === "json") {
-      res.status(gatewayResponse.status).json(upstream.data);
+    res.status(200).json(data);
+  } catch (err) {
+    if (err instanceof XecoflowRequestError) {
+      if (err.data && typeof err.data === "object") {
+        res.status(err.status || 502).json(err.data);
+        return;
+      }
+      res.status(err.status || 502).json({
+        error: err.message || "Unable to reach payment gateway"
+      });
       return;
     }
 
-    res
-      .status(gatewayResponse.status)
-      .send(
-        upstream.data || `Gateway request failed (${gatewayResponse.status})`
-      );
-  } catch (err) {
-    console.error("[STK PROXY] Gateway request failed", err);
+    console.error("[STK PROXY] Gateway request failed", {
+      message: err?.message
+    });
     res.status(502).json({
       error: "Unable to reach payment gateway"
     });

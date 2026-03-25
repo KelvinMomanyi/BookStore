@@ -9,18 +9,15 @@ A responsive ebook commerce store with Firebase-backed catalog management.
 3. Run the app: `npm run dev`
 
 Required payment env keys:
-- `VITE_XECO_SOCKET_URL` (or `VITE_API_BASE_URL` + `VITE_XECO_SOCKET_NAMESPACE`)
 - `VITE_STK_PROXY_URL` (recommended on Vercel, defaults to `/api/stkpush` in production)
-- `VITE_XECO_SERVICE_TYPE` (`payment`)
 - `VITE_AUTHOR_WHATSAPP_NUMBER` (author support WhatsApp number for footer chat icon)
 - `VITE_ADMIN_EMAIL` (admin account email shown/enforced in UI)
 - `VITE_APP_API_BASE` (optional; leave empty for same-origin `/api`)
 
-If you are not using the STK proxy, also set:
-- `VITE_XECO_API_KEY`
-- `VITE_XECO_BUSINESS_SHORTCODE`
-- `VITE_XECO_GATEWAY_URL` (or `VITE_API_BASE_URL`)
-- `VITE_XECO_CALLBACK_URL`
+Optional realtime socket env keys (legacy browser socket mode):
+- `VITE_XECO_SOCKET_URL` (or `VITE_API_BASE_URL` + `VITE_XECO_SOCKET_NAMESPACE`)
+- `VITE_XECO_SERVICE_TYPE` (`payment`)
+- `VITE_XECO_SOCKET_AUTH_KEY`
 
 ## Firebase data model
 
@@ -91,12 +88,14 @@ Setup:
 
 ## Vercel STK Proxy (Recommended for live checkout)
 
-This repo includes `api/stkpush.js` to avoid browser CORS issues and keep API keys server-side.
+This repo includes `api/stkpush.js` to avoid browser CORS issues and keep XECOFLOW credentials server-side.
 
 Set these env vars in Vercel:
-- `XECO_API_KEY`
-- `XECO_SERVICE_TYPE` (`payment`)
-- `XECO_GATEWAY_URL` (or `XECO_API_BASE_URL`)
+- `XECOFLOW_BASE_URL` (`https://xecoflow.onrender.com`)
+- `XECOFLOW_CONSUMER_KEY`
+- `XECOFLOW_CONSUMER_SECRET`
+- `XECO_TOKEN_URL` (optional override; defaults to `<base>/api/v1/auth/token`)
+- `XECO_GATEWAY_URL` (optional override; defaults to `<base>/api/v1/gateway`)
 - `XECO_BUSINESS_SHORTCODE`
 - `XECO_CALLBACK_URL` (for example `https://<your-domain>/api/webhook`)
 - `FIREBASE_CLIENT_EMAIL`
@@ -110,7 +109,7 @@ Setup:
 4. Deploy: `firebase deploy --only functions`.
 
 Webhook:
-- Set `VITE_XECO_CALLBACK_URL` to your function URL:
+- Set `XECO_CALLBACK_URL` (server env) to your function URL:
   `https://<region>-<project-id>.cloudfunctions.net/xecoWebhook`
 - If you set `XECO_WEBHOOK_TOKEN`, append `?token=YOUR_TOKEN` to the callback URL.
 

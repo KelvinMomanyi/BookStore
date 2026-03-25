@@ -1,22 +1,15 @@
 import { io } from "socket.io-client";
 
 const BASE_URL = (import.meta.env.VITE_API_BASE_URL || "").trim();
-const GATEWAY_URL = (
-  import.meta.env.VITE_XECO_GATEWAY_URL ||
-  (BASE_URL ? `${BASE_URL}/api/v1/gateway` : "")
-).trim();
-const API_KEY = (import.meta.env.VITE_XECO_API_KEY || "").trim();
+const SOCKET_AUTH_KEY = (import.meta.env.VITE_XECO_SOCKET_AUTH_KEY || "").trim();
 const SERVICE_TYPE = (
   import.meta.env.VITE_XECO_SERVICE_TYPE || "payment"
 ).trim().toLowerCase();
-const SHORTCODE = (import.meta.env.VITE_XECO_BUSINESS_SHORTCODE || "").trim();
 const SOCKET_NAMESPACE = (import.meta.env.VITE_XECO_SOCKET_NAMESPACE || "/business").trim();
-const CALLBACK_URL = (import.meta.env.VITE_XECO_CALLBACK_URL || "").trim();
 const STK_PROXY_URL = (
   import.meta.env.VITE_STK_PROXY_URL ||
   (import.meta.env.PROD ? "/api/stkpush" : "")
 ).trim();
-const USE_STK_PROXY = Boolean(STK_PROXY_URL);
 
 const MIN_STK_AMOUNT = 5;
 const MAX_ACCOUNT_REFERENCE_LENGTH = 12;
@@ -68,23 +61,8 @@ export const normalizePhoneForGateway = (value) => {
 const getMissingPaymentConfig = () => {
   const missing = [];
 
-  if (USE_STK_PROXY) {
-    if (!STK_PROXY_URL) {
-      missing.push("VITE_STK_PROXY_URL");
-    }
-  } else {
-    if (!API_KEY) {
-      missing.push("VITE_XECO_API_KEY");
-    }
-    if (!GATEWAY_URL) {
-      missing.push("VITE_XECO_GATEWAY_URL (or VITE_API_BASE_URL)");
-    }
-    if (!SHORTCODE) {
-      missing.push("VITE_XECO_BUSINESS_SHORTCODE");
-    }
-    if (!CALLBACK_URL) {
-      missing.push("VITE_XECO_CALLBACK_URL");
-    }
+  if (!STK_PROXY_URL) {
+    missing.push("VITE_STK_PROXY_URL");
   }
 
   return missing;
@@ -93,8 +71,8 @@ const getMissingPaymentConfig = () => {
 const getMissingSocketConfig = () => {
   const missing = [];
 
-  if (!API_KEY) {
-    missing.push("VITE_XECO_API_KEY");
+  if (!SOCKET_AUTH_KEY) {
+    missing.push("VITE_XECO_SOCKET_AUTH_KEY");
   }
   if (!SOCKET_URL) {
     missing.push("VITE_XECO_SOCKET_URL (or VITE_API_BASE_URL + VITE_XECO_SOCKET_NAMESPACE)");
@@ -162,22 +140,10 @@ export const initiateStkPush = async (data) => {
     socket_id: data.socketId
   };
 
-  // When using the server-side STK proxy, server env vars should control
-  // callback URL and shortcode to avoid client-side misconfiguration.
-  if (!USE_STK_PROXY) {
-    payload.businessShortcode = data.businessShortcode || SHORTCODE || undefined;
-    payload.callbackUrl = data.callbackUrl || CALLBACK_URL || undefined;
-  }
-
-  const requestUrl = USE_STK_PROXY ? STK_PROXY_URL : `${GATEWAY_URL}/stkpush`;
+  const requestUrl = STK_PROXY_URL;
   const headers = {
-    "Content-Type": "application/json",
-    "x-service-type": SERVICE_TYPE || "payment"
+    "Content-Type": "application/json"
   };
-
-  if (!USE_STK_PROXY && API_KEY) {
-    headers["x-api-key"] = API_KEY;
-  }
 
   const response = await fetch(requestUrl, {
     method: "POST",
@@ -209,8 +175,8 @@ export const setupSocket = () => {
 
   const socketUrl = ensureSocketNamespace(SOCKET_URL);
   const socket = io(socketUrl, {
-    auth: API_KEY
-      ? { apiKey: API_KEY, serviceType: SERVICE_TYPE || "payment" }
+    auth: SOCKET_AUTH_KEY
+      ? { apiKey: SOCKET_AUTH_KEY, serviceType: SERVICE_TYPE || "payment" }
       : undefined,
     query: { serviceType: SERVICE_TYPE || "payment" },
     transports: ["websocket", "polling"],
