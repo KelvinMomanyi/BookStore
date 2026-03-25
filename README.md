@@ -59,7 +59,10 @@ These serverless routes are included:
 - `GET /api/orders/account`
 - `POST /api/orders/by-id`
 - `POST /api/orders/by-transaction`
+- `GET|POST /api/payments/by-receipt`
 - `GET|POST|PATCH|DELETE /api/admin/books`
+
+`POST /api/orders/by-transaction` now validates the M-Pesa receipt by calling XECOFLOW `GET /api/v1/gateway/transaction/by-receipt/:receipt` through server-side OAuth token auth, then syncs order payment fields.
 
 Required Vercel env vars:
 - `FIREBASE_PROJECT_ID` (or `VITE_FIREBASE_PROJECT_ID`)

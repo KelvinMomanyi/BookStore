@@ -277,7 +277,7 @@ export default function Library() {
 
     const normalizedCode = normalizeTransactionCode(transactionCode);
     if (!normalizedCode) {
-      setStatus("Enter your M-Pesa transaction code.");
+      setStatus("Enter your M-Pesa receipt code.");
       return;
     }
 
@@ -289,7 +289,7 @@ export default function Library() {
       });
       applyOrderResult(response?.order, "mpesa-code");
     } catch (err) {
-      setStatus(err?.message || "Unable to verify payment code right now. Please try again.");
+      setStatus(err?.message || "Unable to verify payment receipt right now. Please try again.");
     } finally {
       setFetchingPayment(false);
     }
@@ -372,7 +372,7 @@ export default function Library() {
             </form>
             <form className="library-form" onSubmit={handlePaymentFetch}>
               <div>
-                <label>M-Pesa transaction code</label>
+                <label>M-Pesa receipt code</label>
                 <input
                   value={transactionCode}
                   onChange={(event) => setTransactionCode(event.target.value)}
