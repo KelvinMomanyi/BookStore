@@ -71,12 +71,29 @@ export default async function handler(req, res) {
 
     res.status(201).json({ id: docRef.id });
   } catch (err) {
+    const errorMessage = (err?.message || "").toString();
+    const errorCode = (err?.code || "").toString().toLowerCase();
+    const normalized = errorMessage.toLowerCase();
+    const permissionDenied =
+      err?.code === 7 ||
+      errorCode.includes("permission-denied") ||
+      normalized.includes("permission denied") ||
+      normalized.includes("insufficient permissions");
+
     console.error("[orders/create] failed", {
-      message: err?.message,
+      message: errorMessage,
       code: err?.code,
       stack: err?.stack
     });
-    res.status(500).json({ error: `Unable to create order: ${err?.message || "unknown error"}` });
+
+    if (permissionDenied) {
+      res.status(500).json({
+        error:
+          "Unable to create order: server Firestore write permission is missing. Ensure FIREBASE_CLIENT_EMAIL/FIREBASE_PRIVATE_KEY belong to a service account with Firestore access."
+      });
+      return;
+    }
+
+    res.status(500).json({ error: `Unable to create order: ${errorMessage || "unknown error"}` });
   }
 }
-

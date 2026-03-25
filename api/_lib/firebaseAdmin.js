@@ -14,18 +14,19 @@ const getPrivateKey = () => {
   if (!raw) return "";
 
   // Strip JSON field name prefix if someone pasted the whole JSON line
-  // e.g.  "private_key": "-----BEGIN PRIVATE KEY-----\n..."
-  //  or   private_key": "-----BEGIN PRIVATE KEY-----\n..."
-  raw = raw.replace(/^"?\s*private_key"?\s*:\s*"?/, "");
+  raw = raw.replace(/^"?\s*private_key"?\s*:\s*/, "");
 
-  // Strip trailing quote if present
-  if (raw.endsWith('"')) {
-    raw = raw.slice(0, -1);
-  }
-
-  // If the value is JSON-stringified (e.g. "\"-----BEGIN...\""), unwrap it
+  // If the value is JSON-stringified or surrounded by quotes, unwrap it
   if (raw.startsWith('"') && raw.endsWith('"')) {
-    try { raw = JSON.parse(raw); } catch { /* use as-is */ }
+    try { 
+      raw = JSON.parse(raw); 
+    } catch { 
+      raw = raw.slice(1, -1); 
+    }
+  } else {
+    // Strip partial or mismatched rogue quotes
+    if (raw.startsWith('"')) raw = raw.slice(1);
+    if (raw.endsWith('"')) raw = raw.slice(0, -1);
   }
 
   // Replace escaped newlines with real newlines

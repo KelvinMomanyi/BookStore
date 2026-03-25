@@ -1,8 +1,6 @@
 import { useMemo, useState, useEffect, useRef } from "react";
 import { Link } from "react-router-dom";
 import {
-  addDoc,
-  collection,
   doc,
   getDoc,
   onSnapshot,
@@ -31,11 +29,16 @@ const getErrorMessage = (err) => (err?.message || "").toString();
 
 const shouldFallbackOrderCreate = (err) => {
   const message = getErrorMessage(err).toLowerCase();
-  return (
-    message.includes("unable to create order") ||
-    message.includes("request failed with status 500") ||
-    message.includes("internal server error")
-  );
+  const looksLikeNetworkIssue =
+    message.includes("failed to fetch") ||
+    message.includes("networkerror") ||
+    message.includes("network request failed") ||
+    message.includes("load failed") ||
+    message.includes("timeout");
+
+  // Fallback writes go through Firestore client rules. Keep this for
+  // development-only network outages, not server-side application errors.
+  return !import.meta.env.PROD && looksLikeNetworkIssue;
 };
 
 const getFileExtension = (url) => {
@@ -314,22 +317,6 @@ export default function Checkout() {
     setPlacing(true);
 
     const orderItems = buildOrderItems(items);
-    const createOrderViaClient = async () => {
-      const fallbackDoc = await addDoc(collection(db, "orders"), {
-        userId: (currentUser?.uid || "").toString().trim(),
-        userEmail: (currentUser?.email || "").toString().trim().toLowerCase(),
-        phoneNumber: deliveryPhone,
-        items: orderItems,
-        total,
-        createdAt: serverTimestamp(),
-        status: "pending",
-        payment: {
-          provider: "mpesa",
-          status: "initiated"
-        }
-      });
-      return fallbackDoc.id;
-    };
 
     let createdOrderId = "";
     try {
@@ -348,16 +335,10 @@ export default function Checkout() {
       }
     } catch (err) {
       if (shouldFallbackOrderCreate(err)) {
-        try {
-          createdOrderId = await createOrderViaClient();
-          setStatus("Order created. Continuing checkout...");
-        } catch (fallbackErr) {
-          console.error("Order creation failed:", fallbackErr);
-          const reason = fallbackErr?.message || "Please try again.";
-          setStatus(`Unable to create the order: ${reason}`);
-          setPlacing(false);
-          return;
-        }
+        const reason = err?.message || "Network issue while creating order.";
+        setStatus(`Unable to create the order: ${reason}`);
+        setPlacing(false);
+        return;
       } else {
         console.error("Order creation failed:", err);
         const reason = err?.message || "Please try again.";
