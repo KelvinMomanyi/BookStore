@@ -4,7 +4,8 @@ import {
   hasOwner,
   isOwner,
   isPaymentConfirmed,
-  sanitizeOrderForClient
+  sanitizeOrderForClient,
+  isOrderExpired
 } from "../_lib/orders.js";
 
 const normalize = (value) => (value || "").toString().trim();
@@ -39,6 +40,11 @@ export default async function handler(req, res) {
     }
 
     let data = snap.data() || {};
+
+    if (isOrderExpired(data)) {
+      res.status(403).json({ error: "Order link has expired (older than 24 hours)." });
+      return;
+    }
 
     if (!isOwner(data, decoded)) {
       if (!claimIfUnassigned || hasOwner(data)) {

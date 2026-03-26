@@ -110,6 +110,13 @@ export const sanitizeOrderForClient = (id, order) => {
   };
 };
 
+export const isOrderExpired = (order) => {
+  if (!order) return true;
+  const time = toEpochMillis(order.paidAt) || toEpochMillis(order.createdAt) || 0;
+  if (!time) return false;
+  return (Date.now() - time) > 24 * 60 * 60 * 1000;
+};
+
 export const normalizeTransactionCode = (value) =>
   (value || "").toString().trim().toUpperCase();
 

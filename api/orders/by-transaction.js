@@ -8,7 +8,8 @@ import {
   isPaymentConfirmed,
   normalizeStatus,
   normalizeTransactionCode,
-  sanitizeOrderForClient
+  sanitizeOrderForClient,
+  isOrderExpired
 } from "../_lib/orders.js";
 import {
   XecoflowRequestError,
@@ -255,6 +256,10 @@ export default async function handler(req, res) {
 
     const local = await getMatchedLocalOrder(db, code, decoded);
     if (local.matched) {
+      if (isOrderExpired(local.matched.data)) {
+        res.status(403).json({ error: "Payment receipt is expired or invalid (older than 24 hours)." });
+        return;
+      }
       res.status(200).json({ order: sanitizeOrderForClient(local.matched.id, local.matched.data) });
       return;
     }
@@ -290,6 +295,11 @@ export default async function handler(req, res) {
     }
 
     targetOrder = await updateOrderFromTransaction(db, targetOrder, transaction, code);
+
+    if (isOrderExpired(targetOrder.data)) {
+      res.status(403).json({ error: "Payment receipt is expired or invalid (older than 24 hours)." });
+      return;
+    }
 
     if (!isOwner(targetOrder.data, decoded)) {
       if (hasOwner(targetOrder.data)) {

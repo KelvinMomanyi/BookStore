@@ -1,6 +1,6 @@
 import { getAdminDb } from "../_lib/firebaseAdmin.js";
 import { normalizeEmail, requireUser } from "../_lib/auth.js";
-import { sanitizeOrderForClient } from "../_lib/orders.js";
+import { sanitizeOrderForClient, isOrderExpired } from "../_lib/orders.js";
 
 const byNewest = (a, b) => (b.createdAtMs || 0) - (a.createdAtMs || 0);
 
@@ -27,10 +27,16 @@ export default async function handler(req, res) {
 
     const map = new Map();
     byUidSnap.docs.forEach((snap) => {
-      map.set(snap.id, sanitizeOrderForClient(snap.id, snap.data()));
+      const data = snap.data();
+      if (!isOrderExpired(data)) {
+        map.set(snap.id, sanitizeOrderForClient(snap.id, data));
+      }
     });
     byEmailSnap.docs.forEach((snap) => {
-      map.set(snap.id, sanitizeOrderForClient(snap.id, snap.data()));
+      const data = snap.data();
+      if (!isOrderExpired(data)) {
+        map.set(snap.id, sanitizeOrderForClient(snap.id, data));
+      }
     });
 
     const orders = Array.from(map.values()).sort(byNewest);
