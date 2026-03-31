@@ -1,3 +1,5 @@
+import crypto from "crypto";
+
 const normalize = (value) => (value || "").toString().trim();
 const withNoTrailingSlash = (value) => normalize(value).replace(/\/+$/g, "");
 
@@ -209,11 +211,49 @@ export const requestXecoflowJson = async (url, options = {}) => {
   const makeRequest = async () => {
     const accessToken = await getAccessToken();
     const headers = normalizeRequestHeaders(options.headers);
+    
+    // 1. Prepare Security Metadata
+    const timestamp = Math.floor(Date.now() / 1000).toString();
+    const nonce = crypto.randomUUID();
+    const bodyString = options.body ? options.body.toString() : "";
+    
+    // Determine the signature path by removing the gateway base URL
+    const gatewayBaseRaw = getGatewayBaseUrl();
+    // Allow for a trailing slash check or difference in domain parsing
+    let signPath = new URL(targetUrl).pathname;
+    try {
+        if (gatewayBaseRaw) {
+           const gwUrl = new URL(gatewayBaseRaw);
+           if (signPath.startsWith(gwUrl.pathname)) {
+               signPath = signPath.slice(gwUrl.pathname.length);
+           }
+        }
+    } catch {
+       // fallback if invalid URL
+    }
+    
+    // Ensure path starts with a slash
+    if (!signPath.startsWith("/")) {
+       signPath = "/" + signPath;
+    }
+
+    const { consumerSecret } = getMissingAuthConfig();
+
+    // 2. Generate HMAC Signature
+    const signaturePayload = `${signPath}${timestamp}${nonce}${bodyString}`;
+    const signature = crypto
+      .createHmac("sha256", consumerSecret)
+      .update(signaturePayload)
+      .digest("hex");
+
     return fetch(targetUrl, {
       ...options,
       headers: {
         ...headers,
-        Authorization: `Bearer ${accessToken}`
+        Authorization: `Bearer ${accessToken}`,
+        "X-Timestamp": timestamp,
+        "X-Nonce": nonce,
+        "X-Signature": signature
       }
     });
   };
