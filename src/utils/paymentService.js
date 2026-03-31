@@ -1,42 +1,25 @@
-import { io } from "socket.io-client";
+import { auth } from "../firebase.js";
 
-const BASE_URL = (import.meta.env.VITE_API_BASE_URL || "").trim();
-const SOCKET_AUTH_KEY = (import.meta.env.VITE_XECO_SOCKET_AUTH_KEY || "").trim();
-const SERVICE_TYPE = (
-  import.meta.env.VITE_XECO_SERVICE_TYPE || "payment"
-).trim().toLowerCase();
-const SOCKET_NAMESPACE = (import.meta.env.VITE_XECO_SOCKET_NAMESPACE || "/business").trim();
 const STK_PROXY_URL = (
   import.meta.env.VITE_STK_PROXY_URL ||
   (import.meta.env.PROD ? "/api/stkpush" : "")
 ).trim();
 
-const MIN_STK_AMOUNT = 5;
-const MAX_ACCOUNT_REFERENCE_LENGTH = 12;
-const SOCKET_URL = (
-  import.meta.env.VITE_XECO_SOCKET_URL ||
-  (BASE_URL
-    ? `${BASE_URL.replace(/\/+$/, "")}/${SOCKET_NAMESPACE.replace(/^\/+/, "")}`
-    : "")
+const PAYMENT_STATUS_URL = (
+  import.meta.env.VITE_PAYMENT_STATUS_URL ||
+  (import.meta.env.PROD ? "/api/payments/status" : "")
 ).trim();
 
-const ensureSocketNamespace = (value) => {
-  const raw = (value || "").trim();
-  if (!raw) return raw;
+const MIN_STK_AMOUNT = 5;
 
-  const normalizedNamespace = `/${SOCKET_NAMESPACE.replace(/^\/+/, "")}`;
-  if (normalizedNamespace === "/") return raw;
+const resolveRequestUrl = (value) => {
+  const raw = (value || "").trim();
+  if (!raw) return "";
 
   try {
-    const parsed = new URL(raw);
-    const path = parsed.pathname.replace(/\/+$/, "");
-    if (!path || path === "/") {
-      parsed.pathname = normalizedNamespace;
-      return parsed.toString().replace(/\/+$/, "");
-    }
-    return raw;
+    return new URL(raw).toString();
   } catch {
-    return raw;
+    return new URL(raw, window.location.origin).toString();
   }
 };
 
@@ -68,14 +51,11 @@ const getMissingPaymentConfig = () => {
   return missing;
 };
 
-const getMissingSocketConfig = () => {
+const getMissingStatusConfig = () => {
   const missing = [];
 
-  if (!SOCKET_AUTH_KEY) {
-    missing.push("VITE_XECO_SOCKET_AUTH_KEY");
-  }
-  if (!SOCKET_URL) {
-    missing.push("VITE_XECO_SOCKET_URL (or VITE_API_BASE_URL + VITE_XECO_SOCKET_NAMESPACE)");
+  if (!PAYMENT_STATUS_URL) {
+    missing.push("VITE_PAYMENT_STATUS_URL");
   }
 
   return missing;
@@ -99,11 +79,30 @@ const getErrorMessageFromResponse = async (response) => {
   }
 };
 
-/**
- * Initiates an MPESA STK Push via XECO Gateway
- * @param {Object} data - { phoneNumber, amount, userId, socketId, accountReference, description, callbackUrl }
- * @returns {Promise<Object>} - The response from the gateway
- */
+export const extractCheckoutIdentifiers = (payload) => {
+  const root = payload && typeof payload === "object" ? payload : {};
+  const data = root.data && typeof root.data === "object" ? root.data : {};
+
+  return {
+    checkoutRequestId:
+      data.checkoutRequestId ||
+      data.checkout_request_id ||
+      data.CheckoutRequestID ||
+      root.checkoutRequestId ||
+      root.checkout_request_id ||
+      root.CheckoutRequestID ||
+      "",
+    merchantRequestId:
+      data.merchantRequestId ||
+      data.merchant_request_id ||
+      data.MerchantRequestID ||
+      root.merchantRequestId ||
+      root.merchant_request_id ||
+      root.MerchantRequestID ||
+      ""
+  };
+};
+
 export const initiateStkPush = async (data) => {
   const missingConfig = getMissingPaymentConfig();
   if (missingConfig.length) {
@@ -126,29 +125,33 @@ export const initiateStkPush = async (data) => {
     throw new Error(`Minimum M-Pesa amount is KES ${MIN_STK_AMOUNT}.`);
   }
 
-  // Restore the complete payload expected by the gateway
+  const reference = (
+    data.reference ||
+    data.accountReference ||
+    data.orderId ||
+    data.userId ||
+    "Order"
+  )
+    .toString()
+    .trim();
+
+  if (!reference) {
+    throw new Error("Payment reference is required.");
+  }
+
   const payload = {
-    phoneNumber: phone,
+    phone,
     amount,
-    userId: data.userId || phone,
-    description: data.description || "Book Store Purchase",
-    accountReference: (data.accountReference || data.userId || "Order")
-      .toString()
-      .trim()
-      .slice(0, MAX_ACCOUNT_REFERENCE_LENGTH),
-    socketId: data.socketId,
-    socket_id: data.socketId
+    reference,
+    description: data.description || "Book Store Purchase"
   };
 
-  const requestUrl = STK_PROXY_URL;
-  const headers = {
-    "Content-Type": "application/json"
-  };
-
-  const response = await fetch(requestUrl, {
+  const response = await fetch(resolveRequestUrl(STK_PROXY_URL), {
     method: "POST",
-    headers,
-    body: JSON.stringify(payload),
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify(payload)
   });
 
   if (!response.ok) {
@@ -159,12 +162,8 @@ export const initiateStkPush = async (data) => {
   return response.json();
 };
 
-/**
- * Sets up a socket connection and returns the socket instance
- * @returns {Object} - socket instance
- */
-export const setupSocket = () => {
-  const missingConfig = getMissingSocketConfig();
+export const checkPaymentStatus = async ({ orderId, checkoutId }) => {
+  const missingConfig = getMissingStatusConfig();
   if (missingConfig.length) {
     throw new Error(
       `Payment setup incomplete. Missing ${missingConfig.join(
@@ -173,17 +172,28 @@ export const setupSocket = () => {
     );
   }
 
-  const socketUrl = ensureSocketNamespace(SOCKET_URL);
-  const socket = io(socketUrl, {
-    auth: SOCKET_AUTH_KEY
-      ? { apiKey: SOCKET_AUTH_KEY, serviceType: SERVICE_TYPE || "payment" }
-      : undefined,
-    query: { serviceType: SERVICE_TYPE || "payment" },
-    transports: ["websocket", "polling"],
-    reconnection: true,
-    reconnectionAttempts: 5,
-    timeout: 10000
+  const currentUser = auth.currentUser;
+  if (!currentUser) {
+    throw new Error("Please sign in first.");
+  }
+
+  const token = await currentUser.getIdToken();
+  const response = await fetch(resolveRequestUrl(PAYMENT_STATUS_URL), {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+      orderId,
+      checkoutId
+    })
   });
 
-  return socket;
+  if (!response.ok) {
+    const message = await getErrorMessageFromResponse(response);
+    throw new Error(message);
+  }
+
+  return response.json();
 };

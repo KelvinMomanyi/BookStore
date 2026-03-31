@@ -1,3 +1,4 @@
+import crypto from "crypto";
 import {
   XecoflowRequestError,
   buildXecoflowStkPushUrl,
@@ -6,6 +7,11 @@ import {
 } from "./_lib/xecoflow.js";
 
 const normalize = (value) => (value || "").toString().trim();
+
+const toAmount = (value) => {
+  const amount = Number(value);
+  return Number.isFinite(amount) ? amount : NaN;
+};
 
 const parseBody = (req) => {
   if (req.body && typeof req.body === "object") {
@@ -30,26 +36,11 @@ export default async function handler(req, res) {
   }
 
   const body = parseBody(req);
-  const gatewayStkUrl = buildXecoflowStkPushUrl();
+  const endpoint = buildXecoflowStkPushUrl();
+  const missing = getMissingXecoflowConfig({ requirePayments: true });
 
-  const fallbackShortcode = normalize(process.env.XECO_BUSINESS_SHORTCODE);
-  const fallbackCallbackUrl = normalize(process.env.XECO_CALLBACK_URL);
-
-  // Prefer server-side configuration and only fall back to client-provided
-  // values when server env vars are unavailable.
-  const businessShortcode =
-    fallbackShortcode || normalize(body.businessShortcode);
-  const callbackUrl = fallbackCallbackUrl || normalize(body.callbackUrl);
-
-  const missing = getMissingXecoflowConfig({ requireGateway: true });
-  if (!businessShortcode) {
-    missing.push("XECO_BUSINESS_SHORTCODE");
-  }
-  if (!callbackUrl) {
-    missing.push("XECO_CALLBACK_URL");
-  }
-  if (!gatewayStkUrl) {
-    missing.push("XECO_STKPUSH_URL or XECO_GATEWAY_URL");
+  if (!endpoint) {
+    missing.push("XECOFLOW_BASE_URL");
   }
 
   if (missing.length) {
@@ -60,19 +51,57 @@ export default async function handler(req, res) {
     return;
   }
 
+  const amount = toAmount(body.amount);
+  const phone = normalize(body.phone || body.phoneNumber);
+  const reference = normalize(
+    body.reference ||
+      body.accountReference ||
+      body.orderId ||
+      body.userId
+  );
+  const description = normalize(body.description) || "Book Store Purchase";
+
+  if (!Number.isFinite(amount) || amount <= 0) {
+    res.status(400).json({
+      error: "A valid amount is required."
+    });
+    return;
+  }
+
+  if (!phone) {
+    res.status(400).json({
+      error: "Phone number is required."
+    });
+    return;
+  }
+
+  if (!reference) {
+    res.status(400).json({
+      error: "Payment reference is required."
+    });
+    return;
+  }
+
+  const timestamp = Math.floor(Date.now() / 1000);
+  const nonce = crypto.randomUUID();
+  const idempotencyKey =
+    normalize(body.idempotency_key || body.idempotencyKey) || crypto.randomUUID();
+
   const payload = {
-    ...body,
-    businessShortcode,
-    callbackUrl
+    amount,
+    phone,
+    reference,
+    description,
+    nonce,
+    timestamp,
+    idempotency_key: idempotencyKey
   };
 
   try {
-    const data = await requestXecoflowJson(gatewayStkUrl, {
+    const data = await requestXecoflowJson(endpoint, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify(payload)
+      body: payload,
+      sign: true
     });
 
     res.status(200).json(data);
@@ -82,13 +111,14 @@ export default async function handler(req, res) {
         res.status(err.status || 502).json(err.data);
         return;
       }
+
       res.status(err.status || 502).json({
         error: err.message || "Unable to reach payment gateway"
       });
       return;
     }
 
-    console.error("[STK PROXY] Gateway request failed", {
+    console.error("[STK PROXY] Payment request failed", {
       message: err?.message
     });
     res.status(502).json({

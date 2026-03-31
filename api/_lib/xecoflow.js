@@ -2,8 +2,7 @@ import crypto from "crypto";
 
 const normalize = (value) => (value || "").toString().trim();
 const withNoTrailingSlash = (value) => normalize(value).replace(/\/+$/g, "");
-
-const TOKEN_REFRESH_BUFFER_MS = 300_000; // Refresh 5 minutes before expiry
+const TOKEN_REFRESH_BUFFER_MS = 300_000;
 
 let cachedAccessToken = "";
 let accessTokenExpiresAt = 0;
@@ -32,20 +31,15 @@ const getEnv = (...keys) => {
   return "";
 };
 
-const getApiBaseUrl = () => {
-  const explicitBase = getEnv("XECOFLOW_BASE_URL", "XECO_API_BASE_URL");
-  return explicitBase ? withNoTrailingSlash(explicitBase) : "";
+const ensureApiV1Base = (value) => {
+  const clean = withNoTrailingSlash(value);
+  if (!clean) return "";
+  return /\/api\/v1$/i.test(clean) ? clean : `${clean}/api/v1`;
 };
 
-const getGatewayBaseUrl = () => {
-  const explicitGateway = getEnv("XECO_GATEWAY_URL", "XECOFLOW_GATEWAY_URL");
-  if (explicitGateway) {
-    const cleanGateway = withNoTrailingSlash(explicitGateway);
-    return cleanGateway.replace(/\/stkpush$/i, "");
-  }
-
-  const apiBase = getApiBaseUrl();
-  return apiBase ? `${apiBase}/api/v1/gateway` : "";
+const getApiBaseUrl = () => {
+  const explicitBase = getEnv("XECOFLOW_BASE_URL", "XECO_API_BASE_URL");
+  return explicitBase ? ensureApiV1Base(explicitBase) : "";
 };
 
 const getTokenUrl = () => {
@@ -55,7 +49,12 @@ const getTokenUrl = () => {
   }
 
   const apiBase = getApiBaseUrl();
-  return apiBase ? `${apiBase}/api/v1/auth/token` : "";
+  return apiBase ? `${apiBase}/auth/token` : "";
+};
+
+const getPaymentsBaseUrl = () => {
+  const apiBase = getApiBaseUrl();
+  return apiBase ? `${apiBase}/payments` : "";
 };
 
 const hasValidCachedToken = () =>
@@ -95,6 +94,48 @@ const getTokenErrorMessage = (status, upstream) => {
   return fallback;
 };
 
+const sortObjectKeys = (value) => {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return {};
+  }
+
+  const sorted = {};
+  Object.keys(value)
+    .sort()
+    .forEach((key) => {
+      sorted[key] = value[key];
+    });
+  return sorted;
+};
+
+const isJsonLikeBody = (value) =>
+  Boolean(value) &&
+  typeof value === "object" &&
+  !Array.isArray(value) &&
+  !(value instanceof ArrayBuffer) &&
+  !(value instanceof Uint8Array) &&
+  !(value instanceof URLSearchParams) &&
+  !(value instanceof FormData);
+
+const buildSignedBody = (value) => {
+  if (!isJsonLikeBody(value)) {
+    throw new XecoflowRequestError(
+      500,
+      "Signed XECOFLOW requests require a JSON object body."
+    );
+  }
+
+  const sortedBody = sortObjectKeys(value);
+  const bodyString = JSON.stringify(sortedBody);
+  return { sortedBody, bodyString };
+};
+
+const buildSignature = (bodyString, consumerSecret) =>
+  crypto
+    .createHmac("sha256", consumerSecret)
+    .update(bodyString)
+    .digest("base64");
+
 export class XecoflowRequestError extends Error {
   constructor(status, message, data = null) {
     super(message);
@@ -126,10 +167,13 @@ const getMissingAuthConfig = () => {
   return { missing, tokenUrl, consumerKey, consumerSecret };
 };
 
-export const getMissingXecoflowConfig = ({ requireGateway = false } = {}) => {
+export const getMissingXecoflowConfig = ({
+  requireGateway = false,
+  requirePayments = false
+} = {}) => {
   const { missing } = getMissingAuthConfig();
-  if (requireGateway && !getGatewayBaseUrl()) {
-    missing.push("XECO_GATEWAY_URL or XECOFLOW_BASE_URL");
+  if ((requireGateway || requirePayments) && !getPaymentsBaseUrl()) {
+    missing.push("XECOFLOW_BASE_URL");
   }
   return missing;
 };
@@ -202,45 +246,84 @@ const normalizeRequestHeaders = (headers = {}) => {
   return { ...headers };
 };
 
+const prepareRequestBody = (body, { sign = false, consumerSecret = "" } = {}) => {
+  if (body === undefined || body === null) {
+    return { body: undefined, headers: {} };
+  }
+
+  if (sign) {
+    const { sortedBody, bodyString } = buildSignedBody(body);
+    const timestamp = normalize(sortedBody.timestamp);
+    const nonce = normalize(sortedBody.nonce);
+    const idempotencyKey = normalize(
+      sortedBody.idempotency_key || sortedBody.idempotencyKey
+    );
+
+    if (!timestamp || !nonce || !idempotencyKey) {
+      throw new XecoflowRequestError(
+        500,
+        "Signed XECOFLOW requests require timestamp, nonce, and idempotency_key."
+      );
+    }
+
+    return {
+      body: bodyString,
+      headers: {
+        "Content-Type": "application/json",
+        "X-Timestamp": timestamp,
+        "X-Nonce": nonce,
+        "X-Idempotency-Key": idempotencyKey,
+        "X-Signature": buildSignature(bodyString, consumerSecret)
+      }
+    };
+  }
+
+  if (isJsonLikeBody(body)) {
+    return {
+      body: JSON.stringify(body),
+      headers: {
+        "Content-Type": "application/json"
+      }
+    };
+  }
+
+  return { body, headers: {} };
+};
+
 export const requestXecoflowJson = async (url, options = {}) => {
   const targetUrl = normalize(url);
   if (!targetUrl) {
     throw new XecoflowRequestError(500, "XECOFLOW endpoint URL is missing.");
   }
 
+  const authenticate = options.authenticate !== false;
+  const sign = options.sign === true;
+
   const makeRequest = async () => {
-    const accessToken = await getAccessToken();
     const headers = normalizeRequestHeaders(options.headers);
-
     const { consumerSecret } = getMissingAuthConfig();
-    const gatewayBase = getGatewayBaseUrl();
-    const path = targetUrl.startsWith(gatewayBase)
-      ? targetUrl.substring(gatewayBase.length)
-      : new URL(targetUrl).pathname;
+    const prepared = prepareRequestBody(options.body, {
+      sign,
+      consumerSecret
+    });
 
-    const timestamp = Math.floor(Date.now() / 1000).toString();
-    const nonce = crypto.randomUUID();
-    const bodyString = options.body ? options.body.toString() : "";
-    const signaturePayload = `${path}${timestamp}${nonce}${bodyString}`;
-    const signature = crypto
-      .createHmac("sha256", consumerSecret)
-      .update(signaturePayload)
-      .digest("hex");
+    if (authenticate) {
+      const accessToken = await getAccessToken();
+      headers.Authorization = `Bearer ${accessToken}`;
+    }
 
     return fetch(targetUrl, {
       ...options,
       headers: {
-        ...headers,
-        Authorization: `Bearer ${accessToken}`,
-        "X-Timestamp": timestamp,
-        "X-Nonce": nonce,
-        "X-Signature": signature
-      }
+        ...prepared.headers,
+        ...headers
+      },
+      body: prepared.body
     });
   };
 
   let response = await makeRequest();
-  if (response.status === 401 || response.status === 403) {
+  if (authenticate && (response.status === 401 || response.status === 403)) {
     clearCachedToken();
     response = await makeRequest();
   }
@@ -276,13 +359,20 @@ export const buildXecoflowStkPushUrl = () => {
     return withNoTrailingSlash(explicitStkUrl);
   }
 
-  const gatewayBase = getGatewayBaseUrl();
-  return gatewayBase ? `${gatewayBase}/stkpush` : "";
+  const paymentsBase = getPaymentsBaseUrl();
+  return paymentsBase ? `${paymentsBase}/stkpush` : "";
+};
+
+export const buildXecoflowStatusUrl = (checkoutId) => {
+  const paymentsBase = getPaymentsBaseUrl();
+  const normalizedCheckoutId = normalize(checkoutId);
+  if (!paymentsBase || !normalizedCheckoutId) return "";
+  return `${paymentsBase}/status/${encodeURIComponent(normalizedCheckoutId)}`;
 };
 
 export const buildXecoflowByReceiptUrl = (receipt) => {
-  const gatewayBase = getGatewayBaseUrl();
+  const paymentsBase = getPaymentsBaseUrl();
   const normalizedReceipt = normalize(receipt);
-  if (!gatewayBase || !normalizedReceipt) return "";
-  return `${gatewayBase}/transaction/by-receipt/${encodeURIComponent(normalizedReceipt)}`;
+  if (!paymentsBase || !normalizedReceipt) return "";
+  return `${paymentsBase}/transaction/${encodeURIComponent(normalizedReceipt)}`;
 };

@@ -70,42 +70,70 @@ const toNumberOrNull = (value) => {
 };
 
 const extractPaymentInfo = (payload) => {
+  const data = payload?.data && typeof payload.data === "object" ? payload.data : {};
   const stkCallback = payload?.Body?.stkCallback || payload?.stkCallback || {};
   const eventName =
     payload?.event ??
     payload?.Event ??
+    data?.event ??
+    data?.Event ??
     payload?.eventName ??
     payload?.event_name ??
+    data?.eventName ??
+    data?.event_name ??
     payload?.type ??
+    data?.type ??
     null;
   const gatewayStatus =
     payload?.status ??
+    data?.status ??
     payload?.paymentStatus ??
     payload?.payment_status ??
+    data?.paymentStatus ??
+    data?.payment_status ??
     eventName ??
     null;
   const resultCode =
     payload?.ResultCode ??
     payload?.resultCode ??
     payload?.result_code ??
+    data?.ResultCode ??
+    data?.resultCode ??
+    data?.result_code ??
     stkCallback?.ResultCode ??
     null;
   const resultDesc =
-    payload?.ResultDesc ?? payload?.resultDesc ?? stkCallback?.ResultDesc ?? "";
+    payload?.ResultDesc ??
+    payload?.resultDesc ??
+    data?.ResultDesc ??
+    data?.resultDesc ??
+    stkCallback?.ResultDesc ??
+    "";
   const checkoutRequestId =
     payload?.CheckoutRequestID ||
     payload?.checkoutRequestId ||
+    data?.CheckoutRequestID ||
+    data?.checkoutRequestId ||
+    data?.checkout_request_id ||
     stkCallback?.CheckoutRequestID ||
     null;
   const merchantRequestId =
     payload?.MerchantRequestID ||
     payload?.merchantRequestId ||
+    data?.MerchantRequestID ||
+    data?.merchantRequestId ||
+    data?.merchant_request_id ||
     stkCallback?.MerchantRequestID ||
     null;
   const accountReference =
     payload?.AccountReference ||
     payload?.accountReference ||
     payload?.account_reference ||
+    data?.AccountReference ||
+    data?.accountReference ||
+    data?.account_reference ||
+    payload?.reference ||
+    data?.reference ||
     null;
   const receipt =
     payload?.transaction_id ||
@@ -113,6 +141,11 @@ const extractPaymentInfo = (payload) => {
     payload?.MpesaReceiptNumber ||
     payload?.mpesaReceiptNumber ||
     payload?.mpesa_receipt_number ||
+    data?.transaction_id ||
+    data?.transactionId ||
+    data?.MpesaReceiptNumber ||
+    data?.mpesaReceiptNumber ||
+    data?.mpesa_receipt_number ||
     readCallbackMetadata(payload, "MpesaReceiptNumber") ||
     readCallbackMetadata(payload, "M_PESA_RECEIPT_NUMBER") ||
     null;
@@ -120,6 +153,7 @@ const extractPaymentInfo = (payload) => {
     payload?.Amount ??
     payload?.amount ??
     payload?.data?.amount ??
+    data?.Amount ??
     readCallbackMetadata(payload, "Amount") ??
     null;
   const amount = toNumberOrNull(amountRaw);
@@ -128,12 +162,19 @@ const extractPaymentInfo = (payload) => {
     payload?.phoneNumber ??
     payload?.phone ??
     payload?.msisdn ??
+    data?.PhoneNumber ??
+    data?.phoneNumber ??
+    data?.phone ??
+    data?.msisdn ??
     readCallbackMetadata(payload, "PhoneNumber") ??
     null;
   const failureReason =
     payload?.failure_reason ||
     payload?.failureReason ||
+    data?.failure_reason ||
+    data?.failureReason ||
     payload?.reason ||
+    data?.reason ||
     resultDesc ||
     "";
 

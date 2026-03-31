@@ -10,11 +10,12 @@ A responsive ebook commerce store with Firebase-backed catalog management.
 
 Required payment env keys:
 - `VITE_STK_PROXY_URL` (recommended on Vercel, defaults to `/api/stkpush` in production)
+- `VITE_PAYMENT_STATUS_URL` (recommended on Vercel, defaults to `/api/payments/status` in production)
 - `VITE_AUTHOR_WHATSAPP_NUMBER` (author support WhatsApp number for footer chat icon)
 - `VITE_ADMIN_EMAIL` (admin account email shown/enforced in UI)
 - `VITE_APP_API_BASE` (optional; leave empty for same-origin `/api`)
 
-Optional realtime socket env keys (legacy browser socket mode):
+Optional legacy XECO socket env keys for manual testing pages:
 - `VITE_XECO_SOCKET_URL` (or `VITE_API_BASE_URL` + `VITE_XECO_SOCKET_NAMESPACE`)
 - `VITE_XECO_SERVICE_TYPE` (`payment`)
 - `VITE_XECO_SOCKET_AUTH_KEY`
@@ -62,7 +63,7 @@ These serverless routes are included:
 - `GET|POST /api/payments/by-receipt`
 - `GET|POST|PATCH|DELETE /api/admin/books`
 
-`POST /api/orders/by-transaction` now validates the M-Pesa receipt by calling XECOFLOW `GET /api/v1/gateway/transaction/by-receipt/:receipt` through server-side OAuth token auth, then syncs order payment fields.
+`POST /api/orders/by-transaction` now validates the M-Pesa receipt by calling XECOFLOW `GET /api/v1/payments/transaction/:receipt` through server-side OAuth token auth, then syncs order payment fields.
 
 Required Vercel env vars:
 - `FIREBASE_PROJECT_ID` (or `VITE_FIREBASE_PROJECT_ID`)
@@ -98,12 +99,10 @@ Set these env vars in Vercel:
 - `XECOFLOW_CONSUMER_KEY`
 - `XECOFLOW_CONSUMER_SECRET`
 - `XECO_TOKEN_URL` (optional override; defaults to `<base>/api/v1/auth/token`)
-- `XECO_GATEWAY_URL` (optional override; defaults to `<base>/api/v1/gateway`)
-- `XECO_BUSINESS_SHORTCODE`
-- `XECO_CALLBACK_URL` (for example `https://<your-domain>/api/webhook`)
 - `FIREBASE_CLIENT_EMAIL`
 - `FIREBASE_PRIVATE_KEY`
 - `VITE_STK_PROXY_URL` = `https://<your-domain>/api/stkpush` (or leave unset to use default `/api/stkpush` in production)
+- `VITE_PAYMENT_STATUS_URL` = `https://<your-domain>/api/payments/status` (or leave unset to use default `/api/payments/status` in production)
 
 Setup:
 1. Install Firebase CLI and initialize functions: `firebase init functions` (select JavaScript).
@@ -111,10 +110,15 @@ Setup:
 3. Create `functions/.env` using `functions/.env.example`.
 4. Deploy: `firebase deploy --only functions`.
 
+Checkout flow:
+- `POST /api/stkpush` signs the new XECOFLOW STK body server-side and sends it to `POST /api/v1/payments/stkpush`.
+- `POST /api/payments/status` polls `GET /api/v1/payments/status/:checkoutId` and syncs the order in Firestore.
+- `GET|POST /api/payments/by-receipt` and `POST /api/orders/by-transaction` use `GET /api/v1/payments/transaction/:receipt`.
+
 Webhook:
-- Set `XECO_CALLBACK_URL` (server env) to your function URL:
+- If your XECOFLOW deployment is configured to post callbacks to your app, point it at:
   `https://<region>-<project-id>.cloudfunctions.net/xecoWebhook`
-- If you set `XECO_WEBHOOK_TOKEN`, append `?token=YOUR_TOKEN` to the callback URL.
+- If you set `XECO_WEBHOOK_TOKEN`, append `?token=YOUR_TOKEN` to the callback URL or send it in the request headers.
 
 Behavior:
 - Webhook updates `orders/{orderId}` to `status: paid` when payment succeeds.

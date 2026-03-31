@@ -35,16 +35,39 @@ const pickTransactionPayload = (response) => {
 
 const normalizeGatewayStatusFromXecoflow = (status, resultCode) => {
   const normalized = normalize(status).replace(/[\s-]+/g, "_");
-  if (resultCode === 0 || resultCode === "0" || normalized === "payment_success") {
+  if (
+    resultCode === 0 ||
+    resultCode === "0" ||
+    [
+      "payment_success",
+      "payment.success",
+      "success",
+      "paid",
+      "completed",
+      "confirmed"
+    ].includes(normalized)
+  ) {
     return "success";
   }
-  if (normalized === "pending_payment") {
+  if (
+    [
+      "pending_payment",
+      "pending",
+      "requested",
+      "initiated",
+      "processing",
+      "queued"
+    ].includes(normalized)
+  ) {
     return "pending";
   }
   if (
     normalized === "payment_failed" ||
+    normalized === "payment.failed" ||
     normalized === "failed" ||
-    normalized === "error"
+    normalized === "error" ||
+    normalized === "timeout" ||
+    normalized === "expired"
   ) {
     return "failed";
   }

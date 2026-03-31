@@ -8,8 +8,10 @@ export const isPaidStatus = (value) => {
     status === "success" ||
     status === "completed" ||
     status === "confirmed" ||
+    status === "payment.success" ||
     status === "payment_success" ||
-    status === "payment-confirmed"
+    status === "payment-confirmed" ||
+    status === "payment_confirmed"
   );
 };
 
@@ -21,7 +23,10 @@ export const isFailedStatus = (value) => {
     status === "canceled" ||
     status === "timeout" ||
     status === "expired" ||
+    status === "payment.failed" ||
     status === "payment_failed" ||
+    status === "payment.cancelled" ||
+    status === "payment.canceled" ||
     status === "payment_cancelled" ||
     status === "payment_canceled"
   );
