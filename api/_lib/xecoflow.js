@@ -1,4 +1,4 @@
-import crypto from 'crypto';
+import crypto from "crypto";
 
 const normalize = (value) => (value || "").toString().trim();
 const withNoTrailingSlash = (value) => normalize(value).replace(/\/+$/g, "");
@@ -208,43 +208,33 @@ export const requestXecoflowJson = async (url, options = {}) => {
     throw new XecoflowRequestError(500, "XECOFLOW endpoint URL is missing.");
   }
 
-  const { consumerSecret } = getMissingAuthConfig();
-  
-  const gatewayBase = getGatewayBaseUrl();
-  let signaturePath = '';
-  if (gatewayBase && targetUrl.startsWith(gatewayBase)) {
-    signaturePath = targetUrl.substring(gatewayBase.length);
-  } else {
-    try {
-      signaturePath = new URL(targetUrl).pathname;
-    } catch {
-      signaturePath = targetUrl;
-    }
-  }
-
-  const timestamp = Math.floor(Date.now() / 1000).toString();
-  const nonce = crypto.randomUUID();
-  const bodyString = options.body ? (typeof options.body === 'string' ? options.body : JSON.stringify(options.body)) : '';
-
-  const signaturePayload = `${signaturePath}${timestamp}${nonce}${bodyString}`;
-  let signature = '';
-  if (consumerSecret) {
-    signature = crypto.createHmac('sha256', consumerSecret)
-      .update(signaturePayload)
-      .digest('hex');
-  }
-
   const makeRequest = async () => {
     const accessToken = await getAccessToken();
     const headers = normalizeRequestHeaders(options.headers);
+
+    const { consumerSecret } = getMissingAuthConfig();
+    const gatewayBase = getGatewayBaseUrl();
+    const path = targetUrl.startsWith(gatewayBase)
+      ? targetUrl.substring(gatewayBase.length)
+      : new URL(targetUrl).pathname;
+
+    const timestamp = Math.floor(Date.now() / 1000).toString();
+    const nonce = crypto.randomUUID();
+    const bodyString = options.body ? options.body.toString() : "";
+    const signaturePayload = `${path}${timestamp}${nonce}${bodyString}`;
+    const signature = crypto
+      .createHmac("sha256", consumerSecret)
+      .update(signaturePayload)
+      .digest("hex");
+
     return fetch(targetUrl, {
       ...options,
       headers: {
         ...headers,
         Authorization: `Bearer ${accessToken}`,
-        'X-Timestamp': timestamp,
-        'X-Nonce': nonce,
-        ...(signature ? { 'X-Signature': signature } : {})
+        "X-Timestamp": timestamp,
+        "X-Nonce": nonce,
+        "X-Signature": signature
       }
     });
   };
