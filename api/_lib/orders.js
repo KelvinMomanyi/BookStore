@@ -78,6 +78,11 @@ const toEpochMillis = (value) => {
   return null;
 };
 
+const toNullableNumber = (value) => {
+  const num = Number(value);
+  return Number.isFinite(num) ? num : null;
+};
+
 export const sanitizeOrderForClient = (id, order) => {
   const createdAtMs = toEpochMillis(order?.createdAt);
   const linkedAtMs = toEpochMillis(order?.linkedAt);
@@ -105,6 +110,10 @@ export const sanitizeOrderForClient = (id, order) => {
       resultDesc: order?.payment?.resultDesc || "",
       checkoutRequestId: order?.payment?.checkoutRequestId || "",
       merchantRequestId: order?.payment?.merchantRequestId || "",
+      phoneNumber: (order?.payment?.phoneNumber || "").toString(),
+      amount: toNullableNumber(order?.payment?.amount),
+      amountMismatch: Boolean(order?.payment?.amountMismatch),
+      amountExpected: toNullableNumber(order?.payment?.amountExpected),
       updatedAtMs: paymentUpdatedMs
     }
   };
@@ -119,4 +128,3 @@ export const isOrderExpired = (order) => {
 
 export const normalizeTransactionCode = (value) =>
   (value || "").toString().trim().toUpperCase();
-

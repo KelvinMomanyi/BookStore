@@ -8,7 +8,8 @@ import { formatCurrency } from "../utils/format.js";
 export default function Home() {
   const { books, loading } = useBooks(24);
   const { addToCart } = useCart();
-  const spotlightBooks = books.slice(0, 4);
+  const heroMotionBooks = books.slice(0, 4);
+  const spotlightBooks = books.slice(0, 6);
   const featuredBooks = books.slice(0, 12);
   const newestBooks = books.slice(12, 20).length
     ? books.slice(12, 20)
@@ -21,6 +22,28 @@ export default function Home() {
     <div className="page">
       <section className="hero hero-classic">
         <div className="hero-copy author-note">
+          {!loading && heroMotionBooks.length ? (
+            <div className="author-float-layer" aria-hidden="true">
+              <div className="author-float-glow" />
+              <div className="author-float-track">
+                {heroMotionBooks.map((book, index) => (
+                  <div
+                    key={`${book.id}-author-float`}
+                    className="author-book"
+                    style={{ "--author-book-delay": `${0.08 + index * 0.12}s` }}
+                  >
+                    <div className="author-book-frame">
+                      <img
+                        src={book.coverUrl || "/placeholder-cover.svg"}
+                        alt=""
+                        loading={index === 0 ? "eager" : "lazy"}
+                      />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : null}
           <p className="kicker">Author storefront</p>
           <h1>Own the complete collection from a single author storefront.</h1>
           <p className="subtext">

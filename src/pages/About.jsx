@@ -1,3 +1,4 @@
+import { Link } from "react-router-dom";
 import SectionTitle from "../components/SectionTitle.jsx";
 
 export default function About() {
@@ -32,14 +33,11 @@ export default function About() {
         <div className="about-cta">
           <h3>Get in touch</h3>
           <p className="muted">
-            Have questions or need help with your digital library?
+            Have questions or need help with your digital library or an order?
           </p>
-          <a
-            href="mailto:contact@isaacbooks.com"
-            className="primary"
-          >
+          <Link to="/contact" className="primary">
             Contact support
-          </a>
+          </Link>
         </div>
       </section>
     </div>
