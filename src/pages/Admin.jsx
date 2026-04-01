@@ -23,6 +23,7 @@ import { formatCurrency } from "../utils/format.js";
 import { isAdminUser } from "../utils/account.js";
 import { isFailedStatus, isPaidStatus, normalizeStatus } from "../utils/orderStatus.js";
 import { authApiRequest } from "../utils/secureApi.js";
+import "../admin.css";
 
 const initialForm = {
   title: "",
@@ -226,6 +227,7 @@ const shouldUseClientFallback = (err) => {
 
 export default function Admin() {
   const [user, setUser] = useState(null);
+  const [activeTab, setActiveTab] = useState("dashboard");
   const [form, setForm] = useState(initialForm);
   const [ebookFile, setEbookFile] = useState(null);
   const [coverFile, setCoverFile] = useState(null);
@@ -715,400 +717,352 @@ export default function Admin() {
   };
 
   return (
-    <div className="page">
-      <section className="panel">
-        <SectionTitle
-          title="Admin Studio"
-          subtitle="Manage your digital catalog and monitor purchase activity."
-        />
-
-        {!user ? (
-          <div className="auth-form">
-            <p className="muted">
-              Sign in with Google to manage your catalog.
-            </p>
-            <button type="button" className="primary google" onClick={handleGoogleLogin}>
+    <div className="admin-layout">
+      {!user ? (
+        <div className="admin-main">
+          <div className="admin-content center" style={{ marginTop: "10vh" }}>
+            <h2 className="admin-panel-title" style={{ fontSize: "2rem", marginBottom: "20px" }}>Admin Studio</h2>
+            <p className="muted" style={{ marginBottom: "24px" }}>Sign in with Google to manage your catalog.</p>
+            <button type="button" className="admin-btn" style={{ fontSize: "1rem", padding: "12px 24px" }} onClick={handleGoogleLogin}>
               Continue with Google
             </button>
-            {status && <p className="status">{status}</p>}
+            {status && <p className="status" style={{ marginTop: "16px" }}>{status}</p>}
           </div>
-        ) : !isAdmin ? (
-          <div className="auth-form center">
-            <h2>Access Denied</h2>
-            <p className="muted">
-              Your account ({user.email}) is not authorized to view the admin panel.
-            </p>
-            <button type="button" className="ghost" onClick={handleLogout}>
+        </div>
+      ) : !isAdmin ? (
+        <div className="admin-main">
+          <div className="admin-content center" style={{ marginTop: "10vh" }}>
+            <h2 className="admin-panel-title" style={{ fontSize: "2rem", marginBottom: "20px" }}>Access Denied</h2>
+            <p className="muted" style={{ marginBottom: "24px" }}>Your account ({user.email}) is not authorized to view the admin panel.</p>
+            <button type="button" className="admin-btn-outline" onClick={handleLogout}>
               Sign out and try another account
             </button>
           </div>
-        ) : (
-          <div className="admin-shell">
-            <div className="admin-header">
-              <p>Signed in as {user.email}</p>
-              <button type="button" className="ghost" onClick={handleLogout}>
-                Sign out
-              </button>
+        </div>
+      ) : (
+        <>
+          <aside className="admin-sidebar">
+            <div className="admin-sidebar-header">BOOK STORE</div>
+            <div className="admin-sidebar-nav">
+              <div 
+                className={`admin-nav-item ${activeTab === 'dashboard' ? 'active' : ''}`}
+                onClick={() => setActiveTab('dashboard')}
+              >
+                Dashboard
+              </div>
+              <div 
+                className={`admin-nav-item ${activeTab === 'catalog' ? 'active' : ''}`}
+                onClick={() => setActiveTab('catalog')}
+              >
+                Catalog Management
+              </div>
+              <div 
+                className={`admin-nav-item ${activeTab === 'orders' ? 'active' : ''}`}
+                onClick={() => setActiveTab('orders')}
+              >
+                Tracked Orders
+              </div>
+              <div 
+                className={`admin-nav-item ${activeTab === 'upload' ? 'active' : ''}`}
+                onClick={() => { setActiveTab('upload'); resetForm(); }}
+              >
+                Add Ebook
+              </div>
             </div>
+            <div className="admin-sidebar-footer">
+              <div className="admin-user-info">
+                <div className="admin-user-avatar">{user.email.charAt(0).toUpperCase()}</div>
+                <div className="admin-user-details">
+                  <p>{user.email.split('@')[0]}</p>
+                  <span>Administrator</span>
+                </div>
+              </div>
+              <button className="admin-logout-btn" onClick={handleLogout}>Sign out</button>
+            </div>
+          </aside>
 
-            <div className="admin-dashboard">
-              <div className="form-head">
-                <h3>Purchase dashboard</h3>
+          <main className="admin-main">
+            <header className="admin-topbar">
+              <h1>
+                {activeTab === 'dashboard' && 'Purchase Dashboard'}
+                {activeTab === 'catalog' && 'Catalog'}
+                {activeTab === 'orders' && 'Recent Orders'}
+                {activeTab === 'upload' && (isEditing ? 'Edit Ebook' : 'Upload Ebook')}
+              </h1>
+              {activeTab === 'dashboard' && (
                 <button
                   type="button"
-                  className="ghost"
+                  className="admin-btn-outline"
                   onClick={handleRefreshDashboard}
                   disabled={loadingOrders}
                 >
-                  {loadingOrders ? "Refreshing..." : "Refresh dashboard"}
+                  {loadingOrders ? "Refreshing..." : "Refresh Data"}
                 </button>
-              </div>
+              )}
+            </header>
 
-              <div className="admin-stats">
-                <article className="admin-stat-card">
-                  <span>Tracked orders</span>
-                  <strong>{salesStats.trackedOrders}</strong>
-                  <p className="muted">All recent orders recorded in the storefront.</p>
-                </article>
-                <article className="admin-stat-card">
-                  <span>Confirmed revenue</span>
-                  <strong>{formatCurrency(salesStats.revenue)}</strong>
-                  <p className="muted">{salesStats.paidOrders} paid orders confirmed.</p>
-                </article>
-                <article className="admin-stat-card">
-                  <span>Units sold</span>
-                  <strong>{salesStats.unitsSold}</strong>
-                  <p className="muted">{salesStats.customers} customers completed purchases.</p>
-                </article>
-                <article className="admin-stat-card">
-                  <span>Open issues</span>
-                  <strong>{salesStats.openOrders + salesStats.reviewOrders}</strong>
-                  <p className="muted">
-                    {salesStats.openOrders} pending and {salesStats.reviewOrders} review items.
-                  </p>
-                </article>
-              </div>
+            <div className="admin-content">
+              {status && <p className="status" style={{ marginBottom: '20px', color: '#1e293b', background: '#e2e8f0', padding: '12px', borderRadius: '8px' }}>{status}</p>}
 
-              {ordersStatus ? <p className="status">{ordersStatus}</p> : null}
-
-              <div className="grid-2 admin-dashboard-grid">
-                <section className="admin-panel-card">
-                  <div className="form-head">
-                    <h3>Top books sold</h3>
-                    <span className="muted">
-                      {loadingOrders ? "Loading..." : `${topSellingBooks.length} titles`}
-                    </span>
-                  </div>
-                  {loadingOrders ? (
-                    <p className="muted">Loading purchase analytics...</p>
-                  ) : topSellingBooks.length ? (
-                    <div className="admin-sales-table-wrap">
-                      <div className="admin-sales-table">
-                        <div className="admin-sales-row admin-sales-header">
-                          <span>Book</span>
-                          <span>Units</span>
-                          <span>Revenue</span>
-                          <span>Latest price</span>
-                        </div>
-                        {topSellingBooks.map((book) => (
-                          <div key={book.key} className="admin-sales-row">
-                            <div className="admin-sales-book">
-                              <strong>{book.title}</strong>
-                              <span className="muted">
-                                {book.author} - {book.orders} orders
-                              </span>
-                            </div>
-                            <span>{book.units}</span>
-                            <span>{formatCurrency(book.revenue)}</span>
-                            <span>{formatCurrency(book.latestPrice)}</span>
-                          </div>
-                        ))}
-                      </div>
+              {activeTab === 'dashboard' && (
+                <>
+                  <div className="admin-stats-row">
+                    <div className="admin-stat-box blue">
+                      <span className="admin-stat-title">Tracked Orders</span>
+                      <strong className="admin-stat-value">{salesStats.trackedOrders}</strong>
+                      <span className="admin-stat-desc">All recent orders</span>
                     </div>
-                  ) : (
-                    <p className="empty">No confirmed purchases yet.</p>
-                  )}
-                </section>
-
-                <section className="admin-panel-card">
-                  <div className="form-head">
-                    <h3>Latest confirmed purchases</h3>
-                    <span className="muted">
-                      {loadingOrders ? "Loading..." : `${confirmedOrders.length} paid orders`}
-                    </span>
-                  </div>
-                  {loadingOrders ? (
-                    <p className="muted">Loading recent purchases...</p>
-                  ) : recentConfirmedOrders.length ? (
-                    <div className="admin-activity-list">
-                      {recentConfirmedOrders.map((order) => (
-                        <article key={order.id} className="admin-activity-item">
-                          <div>
-                            <strong>{describeOrderTitles(order)}</strong>
-                            <p className="muted">
-                              {(order.userEmail || order.phoneNumber || "Unknown buyer")} -{" "}
-                              {formatOrderDate(order.paidAtMs || order.createdAtMs)}
-                            </p>
-                          </div>
-                          <span className="price">{formatCurrency(order.total)}</span>
-                        </article>
-                      ))}
+                    <div className="admin-stat-box teal">
+                      <span className="admin-stat-title">Confirmed Revenue</span>
+                      <strong className="admin-stat-value">{formatCurrency(salesStats.revenue)}</strong>
+                      <span className="admin-stat-desc">{salesStats.paidOrders} paid orders</span>
                     </div>
-                  ) : (
-                    <p className="empty">No paid orders yet.</p>
-                  )}
-                </section>
-              </div>
-
-              <section className="admin-orders">
-                <div className="form-head">
-                  <h3>Tracked orders</h3>
-                  <span className="muted">
-                    {loadingOrders
-                      ? "Loading..."
-                      : `Showing ${recentOrders.length} of ${orders.length} recent orders`}
-                  </span>
-                </div>
-                {loadingOrders ? (
-                  <p className="muted">Loading orders...</p>
-                ) : recentOrders.length ? (
-                  recentOrders.map((order) => (
-                    <article key={order.id} className="admin-order-card">
-                      <div className="admin-order-head">
-                        <div className="admin-order-summary">
-                          <div className="admin-order-title-row">
-                            <h4>Order {order.id}</h4>
-                            <span
-                              className={`badge admin-order-badge ${getOrderStatusTone(order)}`}
-                            >
-                              {getOrderStatusLabel(order)}
-                            </span>
-                          </div>
-                          <div className="admin-order-meta">
-                            <span>{formatOrderDate(order.paidAtMs || order.createdAtMs)}</span>
-                            {order.userEmail ? <span>{order.userEmail}</span> : null}
-                            {order.phoneNumber ? <span>{order.phoneNumber}</span> : null}
-                            {order.payment?.transactionId ? (
-                              <span>M-Pesa {order.payment.transactionId}</span>
-                            ) : null}
-                          </div>
-                        </div>
-                        <div className="admin-order-total">
-                          <strong>{formatCurrency(order.total)}</strong>
-                          <span className="muted">
-                            {(order.items || []).reduce((sum, item) => sum + item.qty, 0)} units
-                          </span>
-                        </div>
-                      </div>
-
-                      {order.payment?.amountMismatch ? (
-                        <p className="status error">
-                          Payment amount mismatch. Expected{" "}
-                          {formatCurrency(order.payment.amountExpected || order.total)}
-                          {order.payment.amount !== null
-                            ? `, received ${formatCurrency(order.payment.amount)}.`
-                            : "."}
-                        </p>
-                      ) : null}
-
-                      {!order.payment?.amountMismatch && order.failureReason ? (
-                        <p className="admin-order-note">{order.failureReason}</p>
-                      ) : null}
-
-                      <div className="admin-order-items">
-                        {(order.items || []).map((item, index) => (
-                          <div
-                            key={`${order.id}-${item.bookId || item.title || index}`}
-                            className="admin-order-item"
-                          >
-                            <div>
-                              <strong>{item.title || "Untitled"}</strong>
-                              <p className="muted">
-                                {item.author || "Unknown author"} - Qty {item.qty} -{" "}
-                                {formatCurrency(item.price)} each
-                              </p>
-                            </div>
-                            <span className="price">
-                              {formatCurrency(item.price * item.qty)}
-                            </span>
-                          </div>
-                        ))}
-                      </div>
-                    </article>
-                  ))
-                ) : (
-                  <p className="empty">No orders have been recorded yet.</p>
-                )}
-              </section>
-            </div>
-
-            <form className="admin-form" onSubmit={handleSubmit}>
-              <div className="form-head">
-                <h3>{isEditing ? "Edit ebook" : "Upload new ebook"}</h3>
-                {isEditing && (
-                  <button type="button" className="ghost" onClick={resetForm}>
-                    Cancel edit
-                  </button>
-                )}
-              </div>
-              <div className="grid-2">
-                <div>
-                  <label>Book Title *</label>
-                  <input
-                    name="title"
-                    value={form.title}
-                    onChange={handleChange}
-                    required
-                  />
-                </div>
-                <div>
-                  <label>Author *</label>
-                  <input
-                    name="author"
-                    value={form.author}
-                    onChange={handleChange}
-                    required
-                  />
-                </div>
-              </div>
-              <div className="grid-3">
-                <div>
-                  <label>Price (KES) *</label>
-                  <input
-                    name="price"
-                    type="number"
-                    min="0"
-                    step="0.01"
-                    value={form.price}
-                    onChange={handleChange}
-                    required
-                  />
-                </div>
-                <div>
-                  <label>Category</label>
-                  <input
-                    name="category"
-                    value={form.category}
-                    onChange={handleChange}
-                    placeholder="Growth, Fiction, Design..."
-                  />
-                </div>
-                <div>
-                  <label>Format</label>
-                  <input
-                    name="format"
-                    value={form.format}
-                    onChange={handleChange}
-                  />
-                </div>
-              </div>
-              <div>
-                <label>Description</label>
-                <textarea
-                  name="description"
-                  value={form.description}
-                  onChange={handleChange}
-                  rows="4"
-                />
-              </div>
-              <div className="grid-2">
-                <div>
-                  <label>Cover image (optional)</label>
-                  <input
-                    type="file"
-                    accept="image/*"
-                    onChange={(event) => setCoverFile(event.target.files?.[0] || null)}
-                  />
-                  {coverProgress > 0 && (
-                    <p className="muted">Cover upload: {coverProgress}%</p>
-                  )}
-                  {form.coverUrl && !coverFile && (
-                    <p className="muted">Current cover will stay.</p>
-                  )}
-                </div>
-                <div>
-                  <label>Or cover URL</label>
-                  <input
-                    name="coverUrl"
-                    value={form.coverUrl}
-                    onChange={handleChange}
-                    placeholder="https://"
-                  />
-                </div>
-              </div>
-              <div>
-                <label>Ebook file (PDF, EPUB)</label>
-                <div className="grid-2 file-split">
-                  <div>
-                    <span className="muted tiny">Upload file</span>
-                    <input
-                      type="file"
-                      accept=".pdf,.epub"
-                      onChange={(event) => setEbookFile(event.target.files?.[0] || null)}
-                    />
+                    <div className="admin-stat-box purple">
+                      <span className="admin-stat-title">Units Sold</span>
+                      <strong className="admin-stat-value">{salesStats.unitsSold}</strong>
+                      <span className="admin-stat-desc">{salesStats.customers} customers</span>
+                    </div>
+                    <div className="admin-stat-box orange">
+                      <span className="admin-stat-title">Open Issues</span>
+                      <strong className="admin-stat-value">{salesStats.openOrders + salesStats.reviewOrders}</strong>
+                      <span className="admin-stat-desc">{salesStats.openOrders} pending, {salesStats.reviewOrders} review</span>
+                    </div>
                   </div>
-                  <div>
-                    <span className="muted tiny">Or paste URL</span>
-                    <input
-                      name="fileUrl"
-                      value={form.fileUrl}
-                      onChange={handleChange}
-                      placeholder="https://"
-                    />
-                  </div>
-                </div>
-                {ebookProgress > 0 && (
-                  <p className="muted">Ebook upload: {ebookProgress}%</p>
-                )}
-                {isEditing && !ebookFile && form.fileUrl && (
-                  <p className="muted">Current ebook source will stay unless changed.</p>
-                )}
-              </div>
-              <button type="submit" className="primary" disabled={!readyToUpload || submitting}>
-                {submitting ? "Saving..." : isEditing ? "Update ebook" : "Publish ebook"}
-              </button>
-              {status && <p className="status">{status}</p>}
-            </form>
 
-            <div className="admin-list">
-              <div className="form-head">
-                <h3>Catalog</h3>
-                <span className="muted">
-                  {loadingBooks ? "Loading..." : `${books.length} ebooks`}
-                </span>
-              </div>
-              {books.map((book) => (
-                <div key={book.id} className="admin-card">
-                  <img
-                    src={book.coverUrl || "/placeholder-cover.svg"}
-                    alt={book.title}
-                  />
-                  <div>
-                    <h4>{book.title}</h4>
-                    <p className="muted">{book.author}</p>
-                    <p className="muted">
-                      {book.category || "Featured"} - {formatCurrency(book.price)}
-                    </p>
+                  <div className="admin-panel">
+                    <div className="admin-panel-header">
+                      <span className="admin-panel-title">Top Books Sold</span>
+                    </div>
+                    <div className="admin-table-container">
+                      <table className="admin-table">
+                        <thead>
+                          <tr>
+                            <th>Book</th>
+                            <th>Units</th>
+                            <th>Revenue</th>
+                            <th>Current Price</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {loadingOrders ? (
+                            <tr><td colSpan="4" className="muted center">Loading...</td></tr>
+                          ) : topSellingBooks.length === 0 ? (
+                            <tr><td colSpan="4" className="muted center">No confirmed purchases yet.</td></tr>
+                          ) : (
+                            topSellingBooks.map(book => (
+                              <tr key={book.key}>
+                                <td>
+                                  <strong>{book.title}</strong>
+                                  <div className="muted" style={{fontSize: "0.85rem"}}>{book.author}</div>
+                                </td>
+                                <td>{book.units}</td>
+                                <td>{formatCurrency(book.revenue)}</td>
+                                <td>{formatCurrency(book.latestPrice)}</td>
+                              </tr>
+                            ))
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
                   </div>
-                  <div className="admin-actions">
-                    <button type="button" className="ghost" onClick={() => startEdit(book)}>
-                      Edit
-                    </button>
-                    <button
-                      type="button"
-                      className="ghost danger"
-                      onClick={() => handleDelete(book)}
-                      disabled={busyId === book.id}
-                    >
-                      {busyId === book.id ? "Deleting..." : "Delete"}
+                </>
+              )}
+
+              {activeTab === 'catalog' && (
+                <div className="admin-panel">
+                  <div className="admin-panel-header">
+                    <span className="admin-panel-title">Ebook Catalog ({books.length})</span>
+                    <button className="admin-btn" onClick={() => { resetForm(); setActiveTab('upload'); }}>
+                      + Add Ebook
                     </button>
                   </div>
+                  <div className="admin-table-container">
+                    <table className="admin-table">
+                      <thead>
+                        <tr>
+                          <th>Book Title</th>
+                          <th>Category</th>
+                          <th>Price</th>
+                          <th>Downloads</th>
+                          <th>Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {loadingBooks ? (
+                          <tr><td colSpan="5" className="muted center">Loading catalog...</td></tr>
+                        ) : books.length === 0 ? (
+                          <tr><td colSpan="5" className="muted center">No books available.</td></tr>
+                        ) : (
+                          books.map(book => (
+                            <tr key={book.id}>
+                              <td>
+                                <div className="admin-table-book">
+                                  <img src={book.coverUrl || "/placeholder-cover.svg"} alt={book.title} />
+                                  <div className="admin-table-book-info">
+                                    <strong>{book.title}</strong>
+                                    <span>{book.author}</span>
+                                  </div>
+                                </div>
+                              </td>
+                              <td>{book.category || "Featured"}</td>
+                              <td>{formatCurrency(book.price)}</td>
+                              <td>PDF / EPUB</td>
+                              <td>
+                                <div className="admin-panel-actions">
+                                  <button className="admin-btn-outline" onClick={() => { startEdit(book); setActiveTab('upload'); }}>Edit</button>
+                                  <button className="admin-btn-danger" onClick={() => handleDelete(book)} disabled={busyId === book.id}>
+                                    {busyId === book.id ? "..." : "Delete"}
+                                  </button>
+                                </div>
+                              </td>
+                            </tr>
+                          ))
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
                 </div>
-              ))}
+              )}
+
+              {activeTab === 'orders' && (
+                <div className="admin-panel">
+                  <div className="admin-panel-header">
+                    <span className="admin-panel-title">Tracked Orders</span>
+                    <div className="muted" style={{fontSize: '0.85rem'}}>
+                      Showing {recentOrders.length} of {orders.length} orders
+                    </div>
+                  </div>
+                  <div className="admin-table-container">
+                    <table className="admin-table">
+                      <thead>
+                        <tr>
+                          <th>Order ID / Items</th>
+                          <th>Customer</th>
+                          <th>Status</th>
+                          <th>Amount</th>
+                          <th>Date</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {loadingOrders ? (
+                          <tr><td colSpan="5" className="muted center">Loading orders...</td></tr>
+                        ) : recentOrders.length === 0 ? (
+                          <tr><td colSpan="5" className="muted center">No orders recorded yet.</td></tr>
+                        ) : (
+                          recentOrders.map(order => {
+                            const tone = getOrderStatusTone(order);
+                            let badgeClass = 'neutral';
+                            if (tone === 'paid') badgeClass = 'success';
+                            if (tone === 'failed') badgeClass = 'danger';
+                            if (tone === 'review') badgeClass = 'warning';
+                            
+                            return (
+                              <tr key={order.id}>
+                                <td>
+                                  <strong>Order {order.id.substring(0,6)}...</strong>
+                                  <div className="muted" style={{fontSize: '0.8rem', marginTop: '4px'}}>
+                                    {describeOrderTitles(order)} ({(order.items || []).reduce((sum, item) => sum + item.qty, 0)} units)
+                                  </div>
+                                </td>
+                                <td>
+                                  <div>{order.userEmail || order.phoneNumber || "Guest"}</div>
+                                  <div className="muted" style={{fontSize: '0.8rem'}}>{order.payment?.transactionId ? `M-Pesa ${order.payment.transactionId}` : ''}</div>
+                                </td>
+                                <td>
+                                  <span className={`admin-badge ${badgeClass}`}>{getOrderStatusLabel(order)}</span>
+                                </td>
+                                <td>
+                                  <strong>{formatCurrency(order.total)}</strong>
+                                  {order.payment?.amountMismatch && (
+                                     <div className="status error" style={{fontSize: '0.75rem', marginTop: '4px'}}>
+                                       Mismatch (Paid: {order.payment.amount})
+                                     </div>
+                                  )}
+                                </td>
+                                <td>{formatOrderDate(order.paidAtMs || order.createdAtMs)}</td>
+                              </tr>
+                            );
+                          })
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+
+              {activeTab === 'upload' && (
+                <div className="admin-panel admin-form-container">
+                  <div className="admin-panel-header">
+                    <span className="admin-panel-title">{isEditing ? "Edit Book Details" : "Upload New Ebook"}</span>
+                    {isEditing && (
+                      <button className="admin-btn-outline" onClick={() => { resetForm(); setActiveTab('catalog'); }}>Cancel Edit</button>
+                    )}
+                  </div>
+                  <form className="admin-content" onSubmit={(e) => { handleSubmit(e); setActiveTab('catalog'); }}>
+                    <div className="admin-form-grid">
+                      <div className="admin-form-group">
+                        <label>Book Title *</label>
+                        <input name="title" value={form.title} onChange={handleChange} required />
+                      </div>
+                      <div className="admin-form-group">
+                        <label>Author *</label>
+                        <input name="author" value={form.author} onChange={handleChange} required />
+                      </div>
+                    </div>
+                    
+                    <div className="admin-form-grid">
+                      <div className="admin-form-group">
+                        <label>Price (KES) *</label>
+                        <input name="price" type="number" min="0" step="0.01" value={form.price} onChange={handleChange} required />
+                      </div>
+                      <div className="admin-form-group">
+                        <label>Category</label>
+                        <input name="category" value={form.category} onChange={handleChange} placeholder="Growth, Fiction..." />
+                      </div>
+                    </div>
+                    
+                    <div className="admin-form-group">
+                      <label>Description</label>
+                      <textarea name="description" value={form.description} onChange={handleChange} rows="4" />
+                    </div>
+
+                    <div className="admin-form-grid">
+                      <div className="admin-form-group">
+                        <label>Cover image (Upload optional)</label>
+                        <input type="file" accept="image/*" onChange={(event) => setCoverFile(event.target.files?.[0] || null)} />
+                        {coverProgress > 0 && <p className="muted" style={{marginTop:'4px', fontSize:'0.8rem'}}>Uploading: {coverProgress}%</p>}
+                      </div>
+                      <div className="admin-form-group">
+                        <label>Or Cover URL</label>
+                        <input name="coverUrl" value={form.coverUrl} onChange={handleChange} placeholder="https://" />
+                      </div>
+                    </div>
+
+                    <div className="admin-form-grid">
+                      <div className="admin-form-group">
+                        <label>Ebook file (PDF/EPUB)</label>
+                        <input type="file" accept=".pdf,.epub" onChange={(event) => setEbookFile(event.target.files?.[0] || null)} />
+                        {ebookProgress > 0 && <p className="muted" style={{marginTop:'4px', fontSize:'0.8rem'}}>Uploading: {ebookProgress}%</p>}
+                      </div>
+                      <div className="admin-form-group">
+                        <label>Or Ebook URL</label>
+                        <input name="fileUrl" value={form.fileUrl} onChange={handleChange} placeholder="https://" />
+                      </div>
+                    </div>
+
+                    <div style={{ marginTop: '24px' }}>
+                      <button type="submit" className="admin-btn" disabled={!readyToUpload || submitting} style={{width: '100%', justifyContent: 'center', padding: '14px'}}>
+                        {submitting ? "Saving..." : isEditing ? "Save Changes" : "Publish Ebook"}
+                      </button>
+                    </div>
+                  </form>
+                </div>
+              )}
+
             </div>
-          </div>
-        )}
-      </section>
+          </main>
+        </>
+      )}
     </div>
   );
 }
