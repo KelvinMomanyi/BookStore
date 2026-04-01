@@ -40,6 +40,19 @@ const dateTimeFormatter = new Intl.DateTimeFormat("en-KE", {
   timeStyle: "short"
 });
 
+const chartDayFormatter = new Intl.DateTimeFormat("en-KE", {
+  month: "short",
+  day: "numeric"
+});
+
+const toDayKey = (value) => {
+  const date = new Date(value);
+  const year = date.getFullYear();
+  const month = `${date.getMonth() + 1}`.padStart(2, "0");
+  const day = `${date.getDate()}`.padStart(2, "0");
+  return `${year}-${month}-${day}`;
+};
+
 const toCreatedAtMs = (value) => {
   if (typeof value === "number") return value;
   if (typeof value?.toMillis === "function") return value.toMillis();
@@ -522,6 +535,85 @@ export default function Admin() {
       .slice(0, 12);
   }, [confirmedOrders]);
 
+  const lastSevenDays = useMemo(() => {
+    const base = new Date();
+    base.setHours(0, 0, 0, 0);
+
+    const days = Array.from({ length: 7 }, (_, index) => {
+      const date = new Date(base);
+      date.setDate(base.getDate() - (6 - index));
+      return {
+        key: toDayKey(date),
+        label: chartDayFormatter.format(date),
+        orders: 0,
+        paidOrders: 0,
+        revenue: 0
+      };
+    });
+
+    const bucket = new Map(days.map((day) => [day.key, day]));
+
+    orders.forEach((order) => {
+      const stamp = getOrderTimestamp(order);
+      if (!stamp) return;
+
+      const day = bucket.get(toDayKey(stamp));
+      if (!day) return;
+
+      day.orders += 1;
+      if (isPaymentConfirmedOrder(order)) {
+        day.paidOrders += 1;
+        day.revenue += toNumber(order?.total, 0);
+      }
+    });
+
+    const maxRevenue = Math.max(...days.map((day) => day.revenue), 0);
+    const maxOrders = Math.max(...days.map((day) => day.orders), 0);
+
+    return {
+      days,
+      maxRevenue,
+      maxOrders,
+      totalRevenue: days.reduce((sum, day) => sum + day.revenue, 0),
+      totalOrders: days.reduce((sum, day) => sum + day.orders, 0)
+    };
+  }, [orders]);
+
+  const orderHealthBreakdown = useMemo(() => {
+    const entries = [
+      { label: "Paid", value: salesStats.paidOrders, tone: "paid" },
+      { label: "Pending", value: salesStats.openOrders, tone: "pending" },
+      { label: "Review", value: salesStats.reviewOrders, tone: "review" },
+      { label: "Failed", value: salesStats.failedOrders, tone: "failed" }
+    ];
+    const total = entries.reduce((sum, entry) => sum + entry.value, 0) || 1;
+
+    return entries.map((entry) => ({
+      ...entry,
+      percent: Math.round((entry.value / total) * 100)
+    }));
+  }, [salesStats]);
+
+  const categoryDistribution = useMemo(() => {
+    const counts = new Map();
+
+    books.forEach((book) => {
+      const label = (book.category || "Featured").toString().trim() || "Featured";
+      counts.set(label, (counts.get(label) || 0) + 1);
+    });
+
+    const total = books.length || 1;
+
+    return Array.from(counts.entries())
+      .map(([label, count]) => ({
+        label,
+        count,
+        percent: Math.round((count / total) * 100)
+      }))
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 5);
+  }, [books]);
+
   const isEditing = Boolean(editId);
   const activeTabMeta = getAdminTabMeta(activeTab, isEditing);
   const readyToUpload = useMemo(() => {
@@ -982,6 +1074,167 @@ export default function Admin() {
                       <span className="admin-stat-title">Open Issues</span>
                       <strong className="admin-stat-value">{salesStats.openOrders + salesStats.reviewOrders}</strong>
                       <span className="admin-stat-desc">{salesStats.openOrders} pending, {salesStats.reviewOrders} review</span>
+                    </div>
+                  </div>
+
+                  <div className="admin-dashboard-grid admin-dashboard-grid-charts">
+                    <div className="admin-panel">
+                      <div className="admin-panel-header">
+                        <span className="admin-panel-title">7 Day Revenue Trend</span>
+                        <div className="muted admin-panel-hint">
+                          Confirmed earnings and daily order volume
+                        </div>
+                      </div>
+                      <div className="admin-chart-grid">
+                        {lastSevenDays.days.map((day) => {
+                          const revenueHeight = lastSevenDays.maxRevenue
+                            ? Math.max(8, Math.round((day.revenue / lastSevenDays.maxRevenue) * 100))
+                            : 0;
+                          const ordersHeight = lastSevenDays.maxOrders
+                            ? Math.max(8, Math.round((day.orders / lastSevenDays.maxOrders) * 100))
+                            : 0;
+
+                          return (
+                            <div key={day.key} className="admin-trend-card">
+                              <div className="admin-trend-bars">
+                                <div className="admin-trend-bar">
+                                  <span
+                                    className="admin-trend-fill revenue"
+                                    style={{ height: revenueHeight ? `${revenueHeight}%` : "0%" }}
+                                  />
+                                </div>
+                                <div className="admin-trend-bar">
+                                  <span
+                                    className="admin-trend-fill orders"
+                                    style={{ height: ordersHeight ? `${ordersHeight}%` : "0%" }}
+                                  />
+                                </div>
+                              </div>
+                              <div className="admin-trend-footer">
+                                <strong>{day.label}</strong>
+                                <span>{formatCurrency(day.revenue)}</span>
+                                <span>{day.orders} orders</span>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    <div className="admin-panel">
+                      <div className="admin-panel-header">
+                        <span className="admin-panel-title">Order Health Breakdown</span>
+                        <div className="muted admin-panel-hint">
+                          Status mix across all tracked orders
+                        </div>
+                      </div>
+                      <div className="admin-health-panel">
+                        <div className="admin-health-stack">
+                          {orderHealthBreakdown.map((entry) => (
+                            <span
+                              key={entry.label}
+                              className={`admin-health-segment ${entry.tone}`}
+                              style={{ width: `${entry.percent || 0}%` }}
+                            />
+                          ))}
+                        </div>
+                        <div className="admin-health-list">
+                          {orderHealthBreakdown.map((entry) => (
+                            <div key={entry.label} className="admin-health-row">
+                              <div className="admin-health-label">
+                                <span className={`admin-health-dot ${entry.tone}`} />
+                                <strong>{entry.label}</strong>
+                              </div>
+                              <div className="admin-health-values">
+                                <span>{entry.value}</span>
+                                <span>{entry.percent}%</span>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="admin-dashboard-grid admin-dashboard-grid-insights">
+                    <div className="admin-panel">
+                      <div className="admin-panel-header">
+                        <span className="admin-panel-title">Progress Snapshot</span>
+                        <div className="muted admin-panel-hint">
+                          Core performance metrics in one table
+                        </div>
+                      </div>
+                      <div className="admin-table-container">
+                        <table className="admin-table admin-insight-table">
+                          <thead>
+                            <tr>
+                              <th>Metric</th>
+                              <th>Current Value</th>
+                              <th>Why It Matters</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            <tr>
+                              <td>Revenue in the last 7 days</td>
+                              <td>{formatCurrency(lastSevenDays.totalRevenue)}</td>
+                              <td className="admin-table-note">Shows recent earning momentum from confirmed orders.</td>
+                            </tr>
+                            <tr>
+                              <td>Orders in the last 7 days</td>
+                              <td>{lastSevenDays.totalOrders}</td>
+                              <td className="admin-table-note">Helps track whether demand is rising or slowing.</td>
+                            </tr>
+                            <tr>
+                              <td>Paid order rate</td>
+                              <td>
+                                {salesStats.trackedOrders
+                                  ? `${Math.round((salesStats.paidOrders / salesStats.trackedOrders) * 100)}%`
+                                  : "0%"}
+                              </td>
+                              <td className="admin-table-note">Compares successful checkouts against all tracked orders.</td>
+                            </tr>
+                            <tr>
+                              <td>Average order value</td>
+                              <td>
+                                {salesStats.paidOrders
+                                  ? formatCurrency(salesStats.revenue / salesStats.paidOrders)
+                                  : formatCurrency(0)}
+                              </td>
+                              <td className="admin-table-note">Useful for understanding the value of each successful purchase.</td>
+                            </tr>
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+
+                    <div className="admin-panel">
+                      <div className="admin-panel-header">
+                        <span className="admin-panel-title">Catalog Mix</span>
+                        <div className="muted admin-panel-hint">
+                          Most represented categories in the catalog
+                        </div>
+                      </div>
+                      <div className="admin-insight-bands">
+                        {categoryDistribution.length === 0 ? (
+                          <p className="muted center">Category data will appear once books are added.</p>
+                        ) : (
+                          categoryDistribution.map((entry) => (
+                            <div key={entry.label} className="admin-insight-band">
+                              <div className="admin-insight-band-head">
+                                <strong>{entry.label}</strong>
+                                <span>{entry.count} books</span>
+                              </div>
+                              <div className="admin-insight-meter">
+                                <span
+                                  className="admin-insight-fill"
+                                  style={{ width: `${entry.percent}%` }}
+                                />
+                              </div>
+                              <div className="muted admin-panel-meta">{entry.percent}% of the catalog</div>
+                            </div>
+                          ))
+                        )}
+                      </div>
                     </div>
                   </div>
 
