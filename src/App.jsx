@@ -1,4 +1,4 @@
-import { Routes, Route } from "react-router-dom";
+import { Routes, Route, useLocation } from "react-router-dom";
 import Navbar from "./components/Navbar.jsx";
 import Footer from "./components/Footer.jsx";
 import CartDrawer from "./components/CartDrawer.jsx";
@@ -18,6 +18,9 @@ import Privacy from "./pages/Privacy.jsx";
 import NotFound from "./pages/NotFound.jsx";
 
 export default function App() {
+  const location = useLocation();
+  const isAdminRoute = location.pathname.startsWith("/admin");
+
   return (
     <div className="app">
       <Navbar />
@@ -38,9 +41,9 @@ export default function App() {
           <Route path="*" element={<NotFound />} />
         </Routes>
       </main>
-      <Footer />
-      <WhatsAppFloat />
-      <CartDrawer />
+      {!isAdminRoute && <Footer />}
+      {!isAdminRoute && <WhatsAppFloat />}
+      {!isAdminRoute && <CartDrawer />}
     </div>
   );
 }

@@ -1,4 +1,4 @@
-import { NavLink, Link } from "react-router-dom";
+import { NavLink, Link, useLocation } from "react-router-dom";
 import { useCart } from "../state/CartContext.jsx";
 import { useState, useEffect } from "react";
 import { auth } from "../firebase.js";
@@ -11,6 +11,8 @@ const navLinkClass = ({ isActive }) =>
 export default function Navbar() {
   const { summary, toggleCart } = useCart();
   const [isAdmin, setIsAdmin] = useState(false);
+  const location = useLocation();
+  const isAdminRoute = location.pathname.startsWith("/admin");
   const profileRoute = isAdmin ? "/admin" : "/about";
   const profileLabel = isAdmin ? "Admin" : "About Us";
 
@@ -98,10 +100,12 @@ export default function Navbar() {
             <span className="nav-text">{profileLabel}</span>
           </NavLink>
         </div>
-        <button type="button" className="cart-button" onClick={toggleCart}>
-          Cart
-          <span className="cart-count">{summary.count}</span>
-        </button>
+        {!isAdminRoute && (
+          <button type="button" className="cart-button" onClick={toggleCart}>
+            Cart
+            <span className="cart-count">{summary.count}</span>
+          </button>
+        )}
       </nav>
     </header>
   );

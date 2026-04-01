@@ -18,7 +18,6 @@ import {
   updateDoc
 } from "firebase/firestore";
 import { auth, db } from "../firebase.js";
-import SectionTitle from "../components/SectionTitle.jsx";
 import { formatCurrency } from "../utils/format.js";
 import { isAdminUser } from "../utils/account.js";
 import { isFailedStatus, isPaidStatus, normalizeStatus } from "../utils/orderStatus.js";
@@ -193,6 +192,45 @@ const describeOrderTitles = (order) => {
   if (!titles.length) return "No books listed";
   if (titles.length === 1) return titles[0];
   return `${titles[0]} +${titles.length - 1} more`;
+};
+
+const countOrderUnits = (order) =>
+  (order?.items || []).reduce(
+    (sum, item) => sum + Math.max(1, Math.floor(toNumber(item?.qty, 1))),
+    0
+  );
+
+const getAdminTabMeta = (activeTab, isEditing) => {
+  if (activeTab === "dashboard") {
+    return {
+      title: "Store Pulse",
+      subtitle:
+        "A calmer overview of revenue, order flow, and the titles currently driving the store."
+    };
+  }
+
+  if (activeTab === "catalog") {
+    return {
+      title: "Catalog Control",
+      subtitle:
+        "Manage live books, pricing, and edits with a layout that matches the storefront language."
+    };
+  }
+
+  if (activeTab === "orders") {
+    return {
+      title: "Order Review",
+      subtitle:
+        "Track customer purchases, payment references, and orders that still need attention."
+    };
+  }
+
+  return {
+    title: isEditing ? "Edit Ebook" : "Publishing Studio",
+    subtitle: isEditing
+      ? "Update metadata, replace assets, and save changes without losing context."
+      : "Add a new ebook with clearer guidance around files, links, and publishing progress."
+  };
 };
 
 const getErrorMessage = (err) => (err?.message || "").toString();
@@ -389,9 +427,12 @@ export default function Admin() {
     [orders]
   );
 
-  const recentConfirmedOrders = useMemo(
-    () => confirmedOrders.slice(0, 6),
-    [confirmedOrders]
+  const attentionOrders = useMemo(
+    () =>
+      recentOrders
+        .filter((order) => getOrderStatusTone(order) !== "paid")
+        .slice(0, 6),
+    [recentOrders]
   );
 
   const salesStats = useMemo(() => {
@@ -482,12 +523,15 @@ export default function Admin() {
   }, [confirmedOrders]);
 
   const isEditing = Boolean(editId);
+  const activeTabMeta = getAdminTabMeta(activeTab, isEditing);
   const readyToUpload = useMemo(() => {
-    if (isEditing) {
-      return form.title && form.author && form.price;
-    }
-    return form.title && form.author && form.price && ebookFile;
-  }, [form, ebookFile, isEditing]);
+    return Boolean(
+      form.title &&
+        form.author &&
+        form.price &&
+        (ebookFile || form.fileUrl)
+    );
+  }, [form, ebookFile]);
 
   const handleGoogleLogin = async () => {
     setStatus("");
@@ -593,7 +637,7 @@ export default function Admin() {
       return;
     }
     if (!readyToUpload) {
-      setStatus("Please complete the required fields.");
+      setStatus("Please complete the required fields and add an ebook file or URL.");
       return;
     }
 
@@ -626,6 +670,7 @@ export default function Admin() {
       };
 
       let usedFallback = false;
+      let successMessage = "";
 
       if (isEditing) {
         try {
@@ -647,7 +692,9 @@ export default function Admin() {
           }
           usedFallback = true;
         }
-        setStatus(usedFallback ? "Ebook updated (Firestore fallback)." : "Ebook updated.");
+        successMessage = usedFallback
+          ? "Ebook updated (Firestore fallback)."
+          : "Ebook updated.";
       } else {
         try {
           await authApiRequest("/api/admin/books", {
@@ -665,15 +712,15 @@ export default function Admin() {
           }
           usedFallback = true;
         }
-        setStatus(
-          usedFallback
-            ? "Upload complete (Firestore fallback)."
-            : "Upload complete. The ebook is now live."
-        );
+        successMessage = usedFallback
+          ? "Upload complete (Firestore fallback)."
+          : "Upload complete. The ebook is now live.";
       }
 
       resetForm();
       await loadBooks();
+      setActiveTab("catalog");
+      setStatus(successMessage);
     } catch (err) {
       console.error("Submission error:", err);
       setStatus(`Upload failed: ${err.message || "Please try again."}`);
@@ -692,6 +739,7 @@ export default function Admin() {
 
     setBusyId(book.id);
     try {
+      let usedFallback = false;
       try {
         await authApiRequest("/api/admin/books", {
           method: "DELETE",
@@ -706,9 +754,14 @@ export default function Admin() {
         } catch (fallbackErr) {
           throw withPermissionHint(fallbackErr);
         }
-        setStatus("Book deleted (Firestore fallback).");
+        usedFallback = true;
       }
       setBooks((prev) => prev.filter((entry) => entry.id !== book.id));
+      setStatus(
+        usedFallback
+          ? `"${book.title}" deleted (Firestore fallback).`
+          : `"${book.title}" deleted from the catalog.`
+      );
     } catch (err) {
       setStatus(`Delete failed: ${err?.message || "Please try again."}`);
     } finally {
@@ -720,56 +773,121 @@ export default function Admin() {
     <div className="admin-layout">
       {!user ? (
         <div className="admin-main">
-          <div className="admin-content center" style={{ marginTop: "10vh" }}>
-            <h2 className="admin-panel-title" style={{ fontSize: "2rem", marginBottom: "20px" }}>Admin Studio</h2>
-            <p className="muted" style={{ marginBottom: "24px" }}>Sign in with Google to manage your catalog.</p>
-            <button type="button" className="admin-btn" style={{ fontSize: "1rem", padding: "12px 24px" }} onClick={handleGoogleLogin}>
-              Continue with Google
-            </button>
-            {status && <p className="status" style={{ marginTop: "16px" }}>{status}</p>}
+          <div className="admin-auth-shell">
+            <div className="admin-auth-copy">
+              <p className="kicker">Admin studio</p>
+              <h2 className="admin-panel-title">Run the bookstore from a calmer control room.</h2>
+              <p className="muted">
+                Sign in with Google to manage the catalog, review recent payments, and
+                publish new ebooks without leaving the visual language of the storefront.
+              </p>
+              <div className="admin-auth-points">
+                <div>
+                  <strong>Catalog control</strong>
+                  <span>Keep covers, pricing, and metadata easy to scan.</span>
+                </div>
+                <div>
+                  <strong>Publishing flow</strong>
+                  <span>Upload files or use direct URLs with less friction.</span>
+                </div>
+                <div>
+                  <strong>Order visibility</strong>
+                  <span>Track revenue and attention-needed orders in one workspace.</span>
+                </div>
+              </div>
+            </div>
+            <div className="admin-auth-card">
+              <p className="admin-auth-label">Secure access</p>
+              <h3>Continue with Google</h3>
+              <p className="muted">
+                Use the configured administrator account to unlock the workspace.
+              </p>
+              <button type="button" className="admin-btn admin-btn-google" onClick={handleGoogleLogin}>
+                Continue with Google
+              </button>
+              {status && <p className="status admin-auth-status">{status}</p>}
+            </div>
           </div>
         </div>
       ) : !isAdmin ? (
         <div className="admin-main">
-          <div className="admin-content center" style={{ marginTop: "10vh" }}>
-            <h2 className="admin-panel-title" style={{ fontSize: "2rem", marginBottom: "20px" }}>Access Denied</h2>
-            <p className="muted" style={{ marginBottom: "24px" }}>Your account ({user.email}) is not authorized to view the admin panel.</p>
-            <button type="button" className="admin-btn-outline" onClick={handleLogout}>
-              Sign out and try another account
-            </button>
+          <div className="admin-auth-shell">
+            <div className="admin-auth-copy">
+              <p className="kicker">Access restricted</p>
+              <h2 className="admin-panel-title">This Google account cannot open the admin workspace.</h2>
+              <p className="muted">
+                Sign out and continue with the configured administrator email to view
+                sales, catalog controls, and publishing tools.
+              </p>
+            </div>
+            <div className="admin-auth-card">
+              <p className="admin-auth-label">Current account</p>
+              <h3>{user.email}</h3>
+              <p className="muted">
+                Your account is not authorized to view the admin panel.
+              </p>
+              <button type="button" className="admin-btn-outline" onClick={handleLogout}>
+                Sign out and try another account
+              </button>
+            </div>
           </div>
         </div>
       ) : (
         <>
           <aside className="admin-sidebar">
-            <div className="admin-sidebar-header">BOOK STORE</div>
+            <div className="admin-sidebar-header">
+              <span>Isaac Books</span>
+              <p>Admin studio</p>
+            </div>
             <div className="admin-sidebar-nav">
-              <div 
+              <button
+                type="button"
                 className={`admin-nav-item ${activeTab === 'dashboard' ? 'active' : ''}`}
                 onClick={() => setActiveTab('dashboard')}
               >
-                Dashboard
-              </div>
-              <div 
+                <span>Overview</span>
+                <small>Revenue, trends, and store health</small>
+              </button>
+              <button
+                type="button"
                 className={`admin-nav-item ${activeTab === 'catalog' ? 'active' : ''}`}
                 onClick={() => setActiveTab('catalog')}
               >
-                Catalog Management
-              </div>
-              <div 
+                <span>Catalog</span>
+                <small>Manage titles, covers, and pricing</small>
+              </button>
+              <button
+                type="button"
                 className={`admin-nav-item ${activeTab === 'orders' ? 'active' : ''}`}
                 onClick={() => setActiveTab('orders')}
               >
-                Tracked Orders
-              </div>
-              <div 
+                <span>Orders</span>
+                <small>Review payments and customer activity</small>
+              </button>
+              <button
+                type="button"
                 className={`admin-nav-item ${activeTab === 'upload' ? 'active' : ''}`}
                 onClick={() => { setActiveTab('upload'); resetForm(); }}
               >
-                Add Ebook
-              </div>
+                <span>Publishing</span>
+                <small>Add a new ebook to the catalog</small>
+              </button>
             </div>
             <div className="admin-sidebar-footer">
+              <div className="admin-sidebar-stats">
+                <div>
+                  <span>Books</span>
+                  <strong>{books.length}</strong>
+                </div>
+                <div>
+                  <span>Orders</span>
+                  <strong>{orders.length}</strong>
+                </div>
+                <div>
+                  <span>Review</span>
+                  <strong>{salesStats.reviewOrders + salesStats.openOrders}</strong>
+                </div>
+              </div>
               <div className="admin-user-info">
                 <div className="admin-user-avatar">{user.email.charAt(0).toUpperCase()}</div>
                 <div className="admin-user-details">
@@ -783,26 +901,64 @@ export default function Admin() {
 
           <main className="admin-main">
             <header className="admin-topbar">
-              <h1>
-                {activeTab === 'dashboard' && 'Purchase Dashboard'}
-                {activeTab === 'catalog' && 'Catalog'}
-                {activeTab === 'orders' && 'Recent Orders'}
-                {activeTab === 'upload' && (isEditing ? 'Edit Ebook' : 'Upload Ebook')}
-              </h1>
-              {activeTab === 'dashboard' && (
-                <button
-                  type="button"
-                  className="admin-btn-outline"
-                  onClick={handleRefreshDashboard}
-                  disabled={loadingOrders}
-                >
-                  {loadingOrders ? "Refreshing..." : "Refresh Data"}
-                </button>
-              )}
+              <div className="admin-topbar-copy">
+                <p className="kicker">Bookstore admin</p>
+                <h1>{activeTabMeta.title}</h1>
+                <p>{activeTabMeta.subtitle}</p>
+              </div>
+              <div className="admin-topbar-actions">
+                {(activeTab === 'dashboard' || activeTab === 'orders') && (
+                  <button
+                    type="button"
+                    className="admin-btn-outline"
+                    onClick={handleRefreshDashboard}
+                    disabled={loadingOrders}
+                  >
+                    {loadingOrders ? "Refreshing..." : "Refresh Data"}
+                  </button>
+                )}
+                {activeTab === 'catalog' && (
+                  <button
+                    type="button"
+                    className="admin-btn"
+                    onClick={() => { resetForm(); setActiveTab('upload'); }}
+                  >
+                    Add Ebook
+                  </button>
+                )}
+                {activeTab === 'upload' && isEditing && (
+                  <button
+                    type="button"
+                    className="admin-btn-outline"
+                    onClick={() => { resetForm(); setActiveTab('catalog'); }}
+                  >
+                    Cancel Edit
+                  </button>
+                )}
+              </div>
             </header>
 
             <div className="admin-content">
-              {status && <p className="status" style={{ marginBottom: '20px', color: '#1e293b', background: '#e2e8f0', padding: '12px', borderRadius: '8px' }}>{status}</p>}
+              <div className="admin-overview-strip">
+                <div className="admin-overview-card">
+                  <span>Live books</span>
+                  <strong>{books.length}</strong>
+                  <p>Titles ready in the catalog.</p>
+                </div>
+                <div className="admin-overview-card">
+                  <span>Confirmed revenue</span>
+                  <strong>{formatCurrency(salesStats.revenue)}</strong>
+                  <p>{salesStats.paidOrders} paid orders tracked.</p>
+                </div>
+                <div className="admin-overview-card">
+                  <span>Needs attention</span>
+                  <strong>{salesStats.reviewOrders + salesStats.openOrders}</strong>
+                  <p>Pending or review orders in the queue.</p>
+                </div>
+              </div>
+
+              {status && <p className="status admin-status-banner">{status}</p>}
+              {ordersStatus && <p className="status admin-status-banner admin-status-banner-alt">{ordersStatus}</p>}
 
               {activeTab === 'dashboard' && (
                 <>
@@ -829,40 +985,83 @@ export default function Admin() {
                     </div>
                   </div>
 
-                  <div className="admin-panel">
-                    <div className="admin-panel-header">
-                      <span className="admin-panel-title">Top Books Sold</span>
+                  <div className="admin-dashboard-grid">
+                    <div className="admin-panel">
+                      <div className="admin-panel-header">
+                        <span className="admin-panel-title">Top Books Sold</span>
+                      </div>
+                      <div className="admin-table-container">
+                        <table className="admin-table">
+                          <thead>
+                            <tr>
+                              <th>Book</th>
+                              <th>Units</th>
+                              <th>Revenue</th>
+                              <th>Current Price</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {loadingOrders ? (
+                              <tr><td colSpan="4" className="muted center">Loading...</td></tr>
+                            ) : topSellingBooks.length === 0 ? (
+                              <tr><td colSpan="4" className="muted center">No confirmed purchases yet.</td></tr>
+                            ) : (
+                              topSellingBooks.map(book => (
+                                <tr key={book.key}>
+                                  <td>
+                                    <strong>{book.title}</strong>
+                                    <div className="muted admin-table-subcopy">{book.author}</div>
+                                  </td>
+                                  <td>{book.units}</td>
+                                  <td>{formatCurrency(book.revenue)}</td>
+                                  <td>{formatCurrency(book.latestPrice)}</td>
+                                </tr>
+                              ))
+                            )}
+                          </tbody>
+                        </table>
+                      </div>
                     </div>
-                    <div className="admin-table-container">
-                      <table className="admin-table">
-                        <thead>
-                          <tr>
-                            <th>Book</th>
-                            <th>Units</th>
-                            <th>Revenue</th>
-                            <th>Current Price</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {loadingOrders ? (
-                            <tr><td colSpan="4" className="muted center">Loading...</td></tr>
-                          ) : topSellingBooks.length === 0 ? (
-                            <tr><td colSpan="4" className="muted center">No confirmed purchases yet.</td></tr>
-                          ) : (
-                            topSellingBooks.map(book => (
-                              <tr key={book.key}>
-                                <td>
-                                  <strong>{book.title}</strong>
-                                  <div className="muted" style={{fontSize: "0.85rem"}}>{book.author}</div>
-                                </td>
-                                <td>{book.units}</td>
-                                <td>{formatCurrency(book.revenue)}</td>
-                                <td>{formatCurrency(book.latestPrice)}</td>
-                              </tr>
-                            ))
-                          )}
-                        </tbody>
-                      </table>
+
+                    <div className="admin-panel">
+                      <div className="admin-panel-header">
+                        <span className="admin-panel-title">Attention Queue</span>
+                        <div className="muted admin-panel-hint">
+                          Orders that may need manual follow-up
+                        </div>
+                      </div>
+                      <div className="admin-activity-stack">
+                        {loadingOrders ? (
+                          <p className="muted center">Loading activity...</p>
+                        ) : attentionOrders.length === 0 ? (
+                          <p className="muted center">No pending or review orders right now.</p>
+                        ) : (
+                          attentionOrders.map(order => {
+                            const tone = getOrderStatusTone(order);
+                            let badgeClass = 'neutral';
+                            if (tone === 'paid') badgeClass = 'success';
+                            if (tone === 'failed') badgeClass = 'danger';
+                            if (tone === 'review') badgeClass = 'warning';
+
+                            return (
+                              <article key={order.id} className="admin-activity-item-card">
+                                <div className="admin-activity-item-head">
+                                  <div>
+                                    <strong>Order {order.id.substring(0, 6)}...</strong>
+                                    <p className="muted">{describeOrderTitles(order)}</p>
+                                  </div>
+                                  <span className={`admin-badge ${badgeClass}`}>{getOrderStatusLabel(order)}</span>
+                                </div>
+                                <div className="admin-activity-item-meta">
+                                  <span>{order.userEmail || order.phoneNumber || "Guest"}</span>
+                                  <span>{formatCurrency(order.total)}</span>
+                                  <span>{countOrderUnits(order)} units</span>
+                                </div>
+                              </article>
+                            );
+                          })
+                        )}
+                      </div>
                     </div>
                   </div>
                 </>
@@ -906,7 +1105,7 @@ export default function Admin() {
                               </td>
                               <td>{book.category || "Featured"}</td>
                               <td>{formatCurrency(book.price)}</td>
-                              <td>PDF / EPUB</td>
+                              <td>{book.format || "PDF / EPUB"}</td>
                               <td>
                                 <div className="admin-panel-actions">
                                   <button className="admin-btn-outline" onClick={() => { startEdit(book); setActiveTab('upload'); }}>Edit</button>
@@ -928,7 +1127,7 @@ export default function Admin() {
                 <div className="admin-panel">
                   <div className="admin-panel-header">
                     <span className="admin-panel-title">Tracked Orders</span>
-                    <div className="muted" style={{fontSize: '0.85rem'}}>
+                    <div className="muted admin-panel-meta">
                       Showing {recentOrders.length} of {orders.length} orders
                     </div>
                   </div>
@@ -960,13 +1159,13 @@ export default function Admin() {
                               <tr key={order.id}>
                                 <td>
                                   <strong>Order {order.id.substring(0,6)}...</strong>
-                                  <div className="muted" style={{fontSize: '0.8rem', marginTop: '4px'}}>
-                                    {describeOrderTitles(order)} ({(order.items || []).reduce((sum, item) => sum + item.qty, 0)} units)
+                                  <div className="muted admin-order-subcopy">
+                                    {describeOrderTitles(order)} ({countOrderUnits(order)} units)
                                   </div>
                                 </td>
                                 <td>
                                   <div>{order.userEmail || order.phoneNumber || "Guest"}</div>
-                                  <div className="muted" style={{fontSize: '0.8rem'}}>{order.payment?.transactionId ? `M-Pesa ${order.payment.transactionId}` : ''}</div>
+                                  <div className="muted admin-order-transaction">{order.payment?.transactionId ? `M-Pesa ${order.payment.transactionId}` : ''}</div>
                                 </td>
                                 <td>
                                   <span className={`admin-badge ${badgeClass}`}>{getOrderStatusLabel(order)}</span>
@@ -974,7 +1173,7 @@ export default function Admin() {
                                 <td>
                                   <strong>{formatCurrency(order.total)}</strong>
                                   {order.payment?.amountMismatch && (
-                                     <div className="status error" style={{fontSize: '0.75rem', marginTop: '4px'}}>
+                                     <div className="status error admin-order-warning">
                                        Mismatch (Paid: {order.payment.amount})
                                      </div>
                                   )}
@@ -998,7 +1197,7 @@ export default function Admin() {
                       <button className="admin-btn-outline" onClick={() => { resetForm(); setActiveTab('catalog'); }}>Cancel Edit</button>
                     )}
                   </div>
-                  <form className="admin-content" onSubmit={(e) => { handleSubmit(e); setActiveTab('catalog'); }}>
+                  <form className="admin-content" onSubmit={handleSubmit}>
                     <div className="admin-form-grid">
                       <div className="admin-form-group">
                         <label>Book Title *</label>
@@ -1030,7 +1229,7 @@ export default function Admin() {
                       <div className="admin-form-group">
                         <label>Cover image (Upload optional)</label>
                         <input type="file" accept="image/*" onChange={(event) => setCoverFile(event.target.files?.[0] || null)} />
-                        {coverProgress > 0 && <p className="muted" style={{marginTop:'4px', fontSize:'0.8rem'}}>Uploading: {coverProgress}%</p>}
+                        {coverProgress > 0 && <p className="muted admin-upload-progress">Uploading: {coverProgress}%</p>}
                       </div>
                       <div className="admin-form-group">
                         <label>Or Cover URL</label>
@@ -1042,7 +1241,7 @@ export default function Admin() {
                       <div className="admin-form-group">
                         <label>Ebook file (PDF/EPUB)</label>
                         <input type="file" accept=".pdf,.epub" onChange={(event) => setEbookFile(event.target.files?.[0] || null)} />
-                        {ebookProgress > 0 && <p className="muted" style={{marginTop:'4px', fontSize:'0.8rem'}}>Uploading: {ebookProgress}%</p>}
+                        {ebookProgress > 0 && <p className="muted admin-upload-progress">Uploading: {ebookProgress}%</p>}
                       </div>
                       <div className="admin-form-group">
                         <label>Or Ebook URL</label>
@@ -1050,8 +1249,8 @@ export default function Admin() {
                       </div>
                     </div>
 
-                    <div style={{ marginTop: '24px' }}>
-                      <button type="submit" className="admin-btn" disabled={!readyToUpload || submitting} style={{width: '100%', justifyContent: 'center', padding: '14px'}}>
+                    <div className="admin-submit-row">
+                      <button type="submit" className="admin-btn admin-submit-btn" disabled={!readyToUpload || submitting}>
                         {submitting ? "Saving..." : isEditing ? "Save Changes" : "Publish Ebook"}
                       </button>
                     </div>
