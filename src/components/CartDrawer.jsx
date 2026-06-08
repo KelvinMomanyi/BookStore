@@ -89,7 +89,7 @@ export default function CartDrawer() {
             onClick={handleProceedToCheckout}
             disabled={!items.length}
           >
-            Proceed to checkout
+            Proceed to Payment
           </button>
           <p className="muted">Payment is completed on the checkout page.</p>
         </div>
