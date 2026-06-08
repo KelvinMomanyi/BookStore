@@ -19,7 +19,7 @@ export default function BookCard({ book, onAdd }) {
         </div>
         <div>
           <h3>{book.title}</h3>
-          <p className="muted">{book.author}</p>
+          <p className="muted">Author: {book.author}</p>
           {book.isbn && (
             <p className="muted" style={{ fontSize: "0.78rem", marginTop: "2px" }}>
               ISBN NO: {book.isbn}
@@ -31,7 +31,7 @@ export default function BookCard({ book, onAdd }) {
           <span className="muted">Digital product</span>
         </div>
         <button type="button" className="primary" onClick={() => onAdd(book)}>
-          Add to cart
+          BUY NOW
         </button>
       </div>
     </article>
