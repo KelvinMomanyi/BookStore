@@ -29,7 +29,7 @@ export default function Navbar() {
       <nav className="nav">
         <Link to="/" className="logo">
           <span className="logo-mark">I</span>
-          <span className="logo-text">Isaac books international</span>
+          <span className="logo-text">Isaack books international</span>
         </Link>
         <div className="nav-links">
           <NavLink to="/" className={navLinkClass} end>
