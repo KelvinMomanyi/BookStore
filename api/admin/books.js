@@ -15,7 +15,8 @@ const sanitizeBookPayload = (body) => ({
   description: normalize(body?.description),
   format: normalize(body?.format) || "PDF / EPUB",
   coverUrl: normalize(body?.coverUrl),
-  fileUrl: normalize(body?.fileUrl)
+  fileUrl: normalize(body?.fileUrl),
+  isbn: normalize(body?.isbn)
 });
 
 const validateBookPayload = (payload) => {

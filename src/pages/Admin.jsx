@@ -32,7 +32,8 @@ const initialForm = {
   description: "",
   format: "PDF / EPUB",
   coverUrl: "",
-  fileUrl: ""
+  fileUrl: "",
+  isbn: ""
 };
 
 const dateTimeFormatter = new Intl.DateTimeFormat("en-KE", {
@@ -715,7 +716,8 @@ export default function Admin() {
       description: book.description || "",
       format: book.format || "PDF / EPUB",
       coverUrl: book.coverUrl || "",
-      fileUrl: book.fileUrl || ""
+      fileUrl: book.fileUrl || "",
+      isbn: book.isbn || ""
     });
     setEbookFile(null);
     setCoverFile(null);
@@ -758,7 +760,8 @@ export default function Admin() {
         description: form.description,
         format: form.format,
         coverUrl: coverUrl || "",
-        fileUrl: ebookUrl || ""
+        fileUrl: ebookUrl || "",
+        isbn: form.isbn || ""
       };
 
       let usedFallback = false;
@@ -1353,6 +1356,7 @@ export default function Admin() {
                                   <div className="admin-table-book-info">
                                     <strong>{book.title}</strong>
                                     <span>{book.author}</span>
+                                    {book.isbn && <span className="admin-table-isbn" style={{ display: 'block', fontSize: '0.75rem', marginTop: '2px', color: 'var(--muted)' }}>ISBN: {book.isbn}</span>}
                                   </div>
                                 </div>
                               </td>
@@ -1470,6 +1474,16 @@ export default function Admin() {
                       <div className="admin-form-group">
                         <label>Category</label>
                         <input name="category" value={form.category} onChange={handleChange} placeholder="Growth, Fiction..." />
+                      </div>
+                    </div>
+
+                    <div className="admin-form-grid">
+                      <div className="admin-form-group">
+                        <label>ISBN NO:</label>
+                        <input name="isbn" value={form.isbn || ""} onChange={handleChange} placeholder="e.g. 978-3-16-148410-0" />
+                      </div>
+                      <div className="admin-form-group">
+                        {/* Balanced layout */}
                       </div>
                     </div>
                     

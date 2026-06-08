@@ -20,6 +20,11 @@ export default function BookCard({ book, onAdd }) {
         <div>
           <h3>{book.title}</h3>
           <p className="muted">{book.author}</p>
+          {book.isbn && (
+            <p className="muted" style={{ fontSize: "0.78rem", marginTop: "2px" }}>
+              ISBN NO: {book.isbn}
+            </p>
+          )}
         </div>
         <div className="book-meta">
           <span className="price">{formatCurrency(book.price)}</span>

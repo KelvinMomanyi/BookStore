@@ -79,6 +79,12 @@ export default function BookDetails() {
               <strong>File format</strong>
               <span>{book.format || "PDF / EPUB"}</span>
             </div>
+            {book.isbn && (
+              <div>
+                <strong>ISBN NO</strong>
+                <span>{book.isbn}</span>
+              </div>
+            )}
             <div>
               <strong>Delivery</strong>
               <span>Instant download after checkout</span>
