@@ -52,7 +52,7 @@ export default function Footer() {
             </a>
             <a href="mailto:online.orders@isaacbooks.com" className="contact-item">
               <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"></path><polyline points="22,6 12,13 2,6"></polyline></svg>
-               isaackkibui7@gmail.com
+               isaackibui7@gmail.com
             </a>
             <p>Digital bookstore support for orders, payments, and downloads.</p>
             <Link to="/contact">Support center</Link>
