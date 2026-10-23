@@ -28,9 +28,9 @@ export default function Home() {
               <div className="author-float-track">
                 {heroMotionBooks.map((book, index) => (
                   <div
-                    key={`${book.id}-author-float`}
+                    key={${book.id}-author-float}
                     className="author-book"
-                    style={{ "--author-book-delay": `${0.08 + index * 0.12}s` }}
+                    style={{ "--author-book-delay": ${0.08 + index * 0.12}s }}
                   >
                     <div className="author-book-frame">
                       <img
@@ -44,16 +44,20 @@ export default function Home() {
               </div>
             </div>
           ) : null}
-          <p className="kicker">Author storefront</p>
-          <h1>Own the complete collection from a single author storefront.</h1>
+          
+          <p className="kicker">Official Storefront of Isaack Kibui</p>
+          
+          <h1>Discover the Latest Books by Isaack Kibui</h1>
+          
           <p className="subtext">
-            Discover books authored and published under Isaac books international.
-            Browse by cover, compare editions, and purchase directly from the writer
+            Browse the complete collection of books authored and published by Isaack Kibui. 
+            Compare editions, buy your favorite titles, and order directly from the writer 
             with instant digital delivery after checkout.
           </p>
+          
           <div className="hero-actions">
             <Link to="/store" className="primary">
-              Browse all books
+              Buy Book Now
             </Link>
             <Link to="/library" className="ghost">
               View your library
@@ -68,7 +72,7 @@ export default function Home() {
             ) : spotlightBooks.length ? (
               spotlightBooks.map((book) => (
                 <article key={book.id} className="shelf-item">
-                  <Link to={`/book/${book.id}`} className="shelf-cover">
+                  <Link to={/book/${book.id}} className="shelf-cover">
                     <img
                       src={book.coverUrl || "/placeholder-cover.svg"}
                       alt={book.title}
