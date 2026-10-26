@@ -50,14 +50,13 @@ export default function Home() {
           <h1>Discover the Latest Books by Isaack Kibui</h1>
           
           <p className="subtext">
-            Browse the complete collection of books authored and published by Isaack Kibui. 
-            Compare editions, buy your favorite titles, and order directly from the writer 
-            with instant digital delivery after checkout.
+            Browse the complete collection of latest books authored and published by Isaack Kibui. 
+            Compare editions, and buy now directly from the writer with instant digital delivery after checkout.
           </p>
           
           <div className="hero-actions">
             <Link to="/store" className="primary">
-              Buy Book Now
+              Buy Now
             </Link>
             <Link to="/library" className="ghost">
               View your library
