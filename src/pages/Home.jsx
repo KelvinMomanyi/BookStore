@@ -28,9 +28,9 @@ export default function Home() {
               <div className="author-float-track">
                 {heroMotionBooks.map((book, index) => (
                   <div
-                    key={${book.id}-author-float}
+                    key={book.id + "-author-float"}
                     className="author-book"
-                    style={{ "--author-book-delay": ${0.08 + index * 0.12}s }}
+                    style={{ "--author-book-delay": (0.08 + index * 0.12) + "s" }}
                   >
                     <div className="author-book-frame">
                       <img
@@ -71,7 +71,7 @@ export default function Home() {
             ) : spotlightBooks.length ? (
               spotlightBooks.map((book) => (
                 <article key={book.id} className="shelf-item">
-                  <Link to={/book/${book.id}} className="shelf-cover">
+                  <Link to={"/book/" + book.id} className="shelf-cover">
                     <img
                       src={book.coverUrl || "/placeholder-cover.svg"}
                       alt={book.title}
