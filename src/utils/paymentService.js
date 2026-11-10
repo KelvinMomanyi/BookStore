@@ -120,6 +120,7 @@ export const initiateStkPush = async (data) => {
     );
   }
 
+  // Ensure amount is strictly a number
   const amount = Number(data.amount);
   if (!Number.isFinite(amount) || amount < MIN_STK_AMOUNT) {
     throw new Error(`Minimum M-Pesa amount is KES ${MIN_STK_AMOUNT}.`);
@@ -140,16 +141,20 @@ export const initiateStkPush = async (data) => {
   }
 
   const payload = {
-    phone,
-    amount,
-    reference,
+    phone: phone,
+    amount: amount, // Explicitly send the number
+    reference: reference,
     description: data.description || "Book Store Purchase"
   };
+
+  // DEBUG LOG: See exactly what is being sent
+  console.log("🚀 FRONTEND SENDING STK PAYLOAD:", payload);
 
   const response = await fetch(resolveRequestUrl(STK_PROXY_URL), {
     method: "POST",
     headers: {
-      "Content-Type": "application/json"
+      "Content-Type": "application/json",
+      "Accept": "application/json"
     },
     body: JSON.stringify(payload)
   });
